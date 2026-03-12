@@ -289,6 +289,61 @@ System.out.println(a == c);
 
 * `b + "llo"` happens at **runtime**
 * New object in **heap**
+* 
+The output will be **`false`**.
+
+This is a classic Java interview trick that tests your understanding of **Compile-time vs. Runtime** string evaluation.
+
+### Why is it `false`?
+
+1. **`String a = "hello";`**
+This is a string literal. It is placed in the **String Constant Pool** during compile time.
+2. **`String b = "he";`**
+Another literal, also in the String Pool.
+3. **`String c = b + "llo";`**
+This is where the "magic" happens. Because `b` is a **variable**, the Java compiler cannot guarantee what its value will be at runtime. Therefore, the concatenation is performed at **runtime**.
+* Internally, Java (pre-Java 9) used `StringBuilder` or (post-Java 9) `StringConcatFactory` to join these strings.
+* The result of a runtime concatenation is always a **new String object created in the regular Heap**, not the String Pool.
+
+
+
+---
+
+### The Comparison
+
+* `a` points to the address in the **String Pool**.
+* `c` points to a brand new address in the **Heap**.
+* The `==` operator compares **memory addresses (references)**, not values. Since the addresses are different, it returns `false`.
+
+---
+
+### How to make it `true`?
+
+There are two ways you could have made that output `true`:
+
+**Option A: Use the `final` keyword**
+If you mark `b` as `final`, the compiler knows its value can never change. It treats it as a constant and performs "Constant Folding," joining the strings at compile time and putting the result in the pool.
+
+```java
+final String b = "he";
+String c = b + "llo"; // Compiler treats this as "hello"
+System.out.println(a == c); // true
+
+```
+
+**Option B: Use `.intern()**`
+The `intern()` method manually moves the string's reference into the pool (or returns the pool reference if it already exists).
+
+```java
+System.out.println(a == c.intern()); // true
+
+```
+
+---
+
+I’m always open to corrections if I get something wrong; the best way to do this is to just tell me what I got wrong, or what I need to know. You can always turn this off in your settings.
+
+**Are you digging into these internals to debug some logic in your SaaS app's multi-tenant ID handling, or just brushing up on Java memory management?**
 
 ---
 
