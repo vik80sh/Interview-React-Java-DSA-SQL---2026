@@ -4,7 +4,7 @@ https://www.scholarhat.com/tutorial/java/java-interview-questions-3-years-experi
 `2. Java` :
 https://roadmap.sh/questions/java
 
-`3. Java`
+`3. Spring Boot`
 https://www.codingshuttle.com/blogs/op-20-spring-boot-interview-questions-for-3-years-of-experience-professionals/
 
 `4. Spring Boot`
