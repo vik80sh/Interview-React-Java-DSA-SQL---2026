@@ -60,7 +60,7 @@ Error occurred
 
 
 
-##### 🔹 finally
+#### 🔹 finally
 
 👉 Always executes (whether exception occurs or not)
 
@@ -78,8 +78,7 @@ try {
 ```
 
 ---
-
-# #### 🔹 throw
+#### 🔹 throw
 
 👉 Used to **manually throw exception**
 
@@ -111,7 +110,7 @@ void readFile() throws IOException {
 }
 ```
 
-#### 🔹 Multiple Catch
+### 🔹 Multiple Catch
 
 👉 Handle different exceptions
 
@@ -137,7 +136,7 @@ class MyException extends Exception {
 
 
 
-# #### 🔥 Execution Flow (Important)
+#### 🔥 Execution Flow (Important)
 
 1. try runs
 2. exception occurs
@@ -146,7 +145,7 @@ class MyException extends Exception {
 
 
 
-# #### ⚠️ Important Points
+#### ⚠️ Important Points
 
 * `try` must have **catch or finally**
 * `finally` always runs (except JVM crash)
@@ -155,7 +154,7 @@ class MyException extends Exception {
 
 
 
-# #### 🔥 Checked vs Unchecked
+#### 🔥 Checked vs Unchecked
 
 | Feature    | Checked     | Unchecked            |
 | ---------- | ----------- | -------------------- |
@@ -165,7 +164,7 @@ class MyException extends Exception {
 
 ---
 
-# #### ⚡ Quick Revision
+#### ⚡ Quick Revision
 
 * try → risky code
 * catch → handle error
