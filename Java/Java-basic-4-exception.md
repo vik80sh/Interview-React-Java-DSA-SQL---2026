@@ -1,16 +1,14 @@
-Perfect 👍 this is **very important + easy scoring topic in interview 🔥**
 
----
 
-# #### 🔹 Exception Handling (Java)
+#### 🔹 Exception Handling (Java)
 
 👉 **Exception = runtime error that disrupts normal flow**
 
----
 
-# #### 🔹 Types of Exception
 
----
+#### 🔹 Types of Exception
+
+
 
 ### 📌 Checked Exception
 
@@ -38,11 +36,11 @@ Perfect 👍 this is **very important + easy scoring topic in interview 🔥**
 
 ---
 
-# #### 🔹 try-catch
+### 🔹 try-catch
 
 👉 Used to **handle exception**
 
----
+
 
 ### 📌 Example
 
@@ -60,13 +58,12 @@ try {
 Error occurred
 ```
 
----
 
-# #### 🔹 finally
+
+##### 🔹 finally
 
 👉 Always executes (whether exception occurs or not)
 
----
 
 ### 📌 Example
 
@@ -86,7 +83,7 @@ try {
 
 👉 Used to **manually throw exception**
 
----
+
 
 ### 📌 Example
 
@@ -96,13 +93,16 @@ if(age < 18) {
 }
 ```
 
----
 
-# #### 🔹 throws
+#### 🔹 throws
 
 👉 Declares exception in method signature
 
----
+#### What is the purpose of the throw and throws keywords?
+*throw*: Used to explicitly throw an exception from a method or block of code.
+
+*throw*s: Used in a method signature to declare that a method might throw one or more specified types of checked exceptions. It informs the caller that they need to handle or declare these exceptions.
+
 
 ### 📌 Example
 
@@ -111,9 +111,7 @@ void readFile() throws IOException {
 }
 ```
 
----
-
-# #### 🔹 Multiple Catch
+#### 🔹 Multiple Catch
 
 👉 Handle different exceptions
 
@@ -124,13 +122,11 @@ try {
 }
 ```
 
----
-
-# #### 🔹 Custom Exception
+#### 🔹 Custom Exception
 
 👉 Create your own exception
 
----
+
 
 ### 📌 Example idea
 
@@ -139,7 +135,7 @@ class MyException extends Exception {
 }
 ```
 
----
+
 
 # #### 🔥 Execution Flow (Important)
 
@@ -148,7 +144,7 @@ class MyException extends Exception {
 3. catch runs
 4. finally runs
 
----
+
 
 # #### ⚠️ Important Points
 
@@ -157,7 +153,7 @@ class MyException extends Exception {
 * Only one catch executes
 * Order → specific to general
 
----
+
 
 # #### 🔥 Checked vs Unchecked
 
