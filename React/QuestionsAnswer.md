@@ -467,7 +467,225 @@ Avoids network overhead
 
 
 
+---
+
+✅ Q3: How do you handle API rate limits gracefully on the frontend?
+
 
 ---
 
+🚫 1. Problem: Too many API calls → 429 (Rate Limit Exceeded)
+
+Causes:
+
+Rapid clicks
+
+Typing search input
+
+Multiple components firing same API
+
+
+✅ Solution: Request Throttling & Debouncing
+
+👉 Example (search input):
+
+useDebounce(value, 300);
+
+Why it solves it:
+
+Reduces unnecessary API calls
+
+Prevents hitting rate limits
+
+
+
+---
+
+🔁 2. Problem: Retrying immediately worsens the issue
+
+If API fails with 429:
+
+Immediate retry = more failures
+
+
+✅ Solution: Exponential Backoff Retry
+
+Retry with delay:
+
+1st → 1s
+
+2nd → 2s
+
+3rd → 4s
+
+
+👉 Using React Query:
+
+retry: 3,
+retryDelay: attempt => Math.min(1000 * 2 ** attempt, 30000)
+
+Why it solves it:
+
+Gives server time to recover
+
+Avoids spamming
+
+
+
+---
+
+🧠 3. Problem: Duplicate API calls from multiple components
+
+Example:
+
+Same data requested in 3 places
+
+
+✅ Solution: Request Deduplication (React Query)
+
+Same query → single API call
+
+
+Why it solves it:
+
+Prevents redundant requests
+
+Saves rate limit quota
+
+
+
+---
+
+💾 4. Problem: Re-fetching same data again and again
+
+✅ Solution: Caching
+
+Cache API responses
+
+
+👉 React Query:
+
+staleTime: 5 * 60 * 1000
+
+Why it solves it:
+
+Reduces API hits
+
+Improves performance
+
+
+
+---
+
+⛔ 5. Problem: No feedback to user when limit is hit
+
+User keeps clicking → frustration
+
+✅ Solution: Graceful UI Handling
+
+Show message:
+👉 “Too many requests, please try again in a moment”
+
+Disable button temporarily
+
+
+Why it solves it:
+
+Better UX
+
+Prevents repeated calls
+
+
+
+---
+
+🔐 6. Problem: Burst actions (button spam)
+
+Example:
+
+User clicks "Generate Report" 10 times
+
+
+✅ Solution: Action Locking
+
+Disable button after first click
+
+Enable after response
+
+
+Why it solves it:
+
+Prevents duplicate requests
+
+
+
+---
+
+🌐 7. Problem: Global API flooding
+
+✅ Solution: Centralized API Client
+
+Use Axios interceptor:
+
+api.interceptors.response.use(
+  res => res,
+  err => {
+    if (err.response.status === 429) {
+      // handle globally
+    }
+    return Promise.reject(err);
+  }
+);
+
+Why it solves it:
+
+Central control
+
+Consistent handling
+
+
+
+---
+
+📊 8. Problem: No awareness of rate limits
+
+✅ Solution: Respect server headers
+
+Some APIs send:
+
+Retry-After
+
+
+👉 Use it to delay next request
+
+Why it solves it:
+
+Smart retry timing
+
+Better cooperation with backend
+
+
+
+---
+
+🎯 Final Interview Answer (Clean)
+
+> “To handle API rate limits, I reduce unnecessary requests using debouncing, caching, and request deduplication. I handle failures using exponential backoff instead of immediate retries, and provide user feedback with disabled actions and error messages. I also use centralized API interceptors to handle 429 responses consistently.”
+
+
+
+
+---
+
+🔥 This answer shows:
+
+Performance thinking
+
+System design awareness
+
+UX consideration
+
+
+
+---
 
