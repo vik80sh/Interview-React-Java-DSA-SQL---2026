@@ -903,5 +903,248 @@ Real-world issues
 
 
 ---
+Perfect — this is a pure senior/frontend architecture question 👇
+
+
+---
+
+✅ Q5: How would you build a component library used by multiple teams?
+
+
+---
+
+🧩 1. Problem: UI inconsistency across teams
+
+Different buttons, inputs, spacing
+
+No standard design
+
+Poor UX consistency
+
+
+✅ Solution: Centralized Design System
+
+👉 Build:
+
+Colors, typography, spacing rules
+
+Design tokens
+
+
+Why it solves it:
+
+Single source of truth
+
+Consistent UI across apps
+
+
+
+---
+
+🧱 2. Problem: Duplicate components across projects
+
+Every team builds their own Button, Modal
+
+
+✅ Solution: Shared Component Library
+
+Structure:
+
+components/
+  Button/
+  Input/
+  Modal/
+
+👉 Publish as:
+
+NPM package (private)
+
+
+Why it solves it:
+
+Reusability
+
+Faster development
+
+
+
+---
+
+⚖️ 3. Problem: Mixing UI + business logic
+
+Bad example:
+
+Button with API logic inside
+
+
+✅ Solution: Separate Layers
+
+UI components (dumb) → Button, Input
+
+Feature components (smart) → UserForm, DashboardCard
+
+
+Why it solves it:
+
+Reusable across projects
+
+Clean architecture
+
+
+
+---
+
+🎨 4. Problem: Hardcoded styles → difficult to scale
+
+✅ Solution: Theming + Design Tokens
+
+Use:
+
+CSS variables / Tailwind config
+
+
+--primary-color: #2563eb;
+
+Why it solves it:
+
+Easy branding
+
+Supports multiple products
+
+
+
+---
+
+🧪 5. Problem: Components break when reused
+
+✅ Solution: Strong Testing
+
+Unit tests (Jest)
+
+Visual testing (Storybook)
+
+
+Why it solves it:
+
+Reliability across teams
+
+
+
+---
+
+📚 6. Problem: Poor documentation → low adoption
+
+✅ Solution: Storybook / Docs
+
+Each component should have:
+
+Props
+
+Variants
+
+Usage examples
+
+
+Why it solves it:
+
+Easy for teams to use
+
+Reduces dependency on core team
+
+
+
+---
+
+🔄 7. Problem: Breaking changes affect all teams
+
+✅ Solution: Versioning (SemVer)
+
+v1.0.0 → stable
+
+v1.1.0 → new feature
+
+v2.0.0 → breaking
+
+
+Why it solves it:
+
+Controlled upgrades
+
+Backward compatibility
+
+
+
+---
+
+⚡ 8. Problem: Bundle size increases
+
+✅ Solution: Tree Shaking + Modular Exports
+
+import { Button } from '@company/ui';
+
+Why it solves it:
+
+Only used components are loaded
+
+Smaller bundle
+
+
+
+---
+
+👥 9. Problem: Scaling across multiple teams
+
+✅ Solution: Governance Model
+
+Core UI team owns library
+
+Contribution guidelines
+
+Code reviews
+
+
+Why it solves it:
+
+Maintains quality
+
+Prevents chaos
+
+
+
+---
+
+🚀 10. Problem: Different tech stacks (React versions, etc.)
+
+✅ Solution:
+
+Keep library framework-agnostic (if possible)
+
+Or standardize stack
+
+
+
+---
+
+🎯 Final Interview Answer (Clean)
+
+> “I would build a centralized component library backed by a design system to ensure consistency across teams. I’d keep components reusable and free of business logic, use theming for flexibility, and document everything with Storybook. I’d also implement versioning and governance to manage changes across teams while keeping the bundle optimized with tree shaking.”
+
+
+
+
+---
+
+🔥 This answer shows:
+
+System design thinking
+
+Team scalability
+
+Real-world experience
+
+
+
+---
+
 
 
