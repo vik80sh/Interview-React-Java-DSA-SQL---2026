@@ -1145,6 +1145,236 @@ Real-world experience
 
 
 ---
+Perfect — this is one of the most asked frontend system design questions 👇
+
+
+---
+
+✅ Q6: Explain CSR, SSR, and SSG — when would you use each?
+
+
+---
+
+🌐 1. Problem: Different apps have different needs
+
+Some need SEO
+
+Some need speed
+
+Some need real-time data
+
+
+👉 One rendering strategy doesn’t fit all
+
+
+---
+
+🧠 2. CSR (Client-Side Rendering)
+
+
+---
+
+❌ Problem CSR Solves
+
+Avoids server load, gives rich interactivity
+
+👉 How it works:
+
+Server sends empty HTML
+
+Browser loads JS
+
+React renders UI
+
+
+
+---
+
+✅ When to Use CSR
+
+Dashboards (like your SaaS ✅)
+
+Authenticated apps
+
+Highly interactive UIs
+
+
+
+---
+
+⚠️ Downsides
+
+Slow initial load
+
+Poor SEO
+
+
+
+---
+
+💡 Example
+
+Admin panel
+
+Internal tools
+
+
+
+---
+
+⚡ 3. SSR (Server-Side Rendering)
+
+
+---
+
+❌ Problem CSR has:
+
+Bad SEO
+
+Slow first paint
+
+
+✅ Solution: SSR
+
+👉 How it works:
+
+Server renders HTML on each request
+
+Sends ready page
+
+
+
+---
+
+✅ When to Use SSR
+
+SEO-critical pages
+
+Dynamic content (changes frequently)
+
+
+
+---
+
+⚠️ Downsides
+
+Server load increases
+
+Slower response time vs static
+
+
+
+---
+
+💡 Example
+
+E-commerce product page
+
+News websites
+
+
+
+---
+
+🚀 4. SSG (Static Site Generation)
+
+
+---
+
+❌ Problem SSR has:
+
+Server cost per request
+
+
+✅ Solution: SSG
+
+👉 How it works:
+
+Pages generated at build time
+
+Served as static files (CDN)
+
+
+
+---
+
+✅ When to Use SSG
+
+Content rarely changes
+
+Maximum performance needed
+
+
+
+---
+
+⚠️ Downsides
+
+Not good for real-time data
+
+
+
+---
+
+💡 Example
+
+Blogs
+
+Marketing pages
+
+
+
+---
+
+⚖️ 5. Comparison Table
+
+Feature	CSR	SSR	SSG
+
+Initial Load	Slow	Fast	Very Fast 🚀
+SEO	Poor	Good	Excellent
+Server Load	Low	High	Very Low
+Use Case	Dashboards	Dynamic pages	Static pages
+
+
+
+---
+
+🧠 6. Real Interview Insight (VERY IMPORTANT)
+
+👉 In real apps, we combine all three
+
+Example (your SaaS):
+
+Admin Dashboard → CSR
+
+Landing Page → SSG
+
+Pricing Page → SSR
+
+
+
+---
+
+🎯 Final Interview Answer (Clean)
+
+> “CSR renders content on the client and is best for highly interactive apps like dashboards. SSR renders pages on the server for each request, improving SEO and initial load for dynamic content. SSG generates pages at build time and serves them via CDN, making it ideal for static content like blogs. In real-world applications, we often use a hybrid approach combining all three based on the use case.”
+
+
+
+
+---
+
+🔥 This answer shows:
+
+Concept clarity
+
+Practical thinking
+
+Architecture awareness
+
+
+
+---
 
 
 
