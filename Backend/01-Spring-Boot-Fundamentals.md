@@ -127,7 +127,76 @@ class UserController {
 // - Easy to test (inject mocks)
 // - Centralized object management
 // - Spring handles object lifecycle
+
 ```
+
+## Complete Flow
+
+```text
+Application Starts
+        │
+        ▼
+Component Scan
+        │
+        ▼
+Find @Service
+        │
+        ▼
+Create UserService Bean
+        │
+        ▼
+Find @RestController
+        │
+        ▼
+See constructor(UserService)
+        │
+        ▼
+Fetch UserService Bean
+        │
+        ▼
+Create UserController(UserService)
+        │
+        ▼
+Store both beans in IoC Container
+```
+
+---
+
+## Where is IoC here?
+
+Notice that **you never write**:
+
+```java
+UserService service = new UserService();
+
+UserController controller = new UserController(service);
+```
+
+Instead, **Spring writes (internally)**:
+
+```java
+UserService service = new UserService();
+
+UserController controller = new UserController(service);
+```
+
+That is **Inversion of Control**.
+
+The control of object creation has moved from your application code to the **Spring IoC Container**.
+
+---
+
+## Interview Answer
+
+If the interviewer asks:
+
+> **"Nowadays we don't use `@Autowired`. How does dependency injection still work?"**
+
+You can answer:
+
+> "Starting with Spring 4.3, if a bean has only one constructor, Spring automatically treats it as the injection constructor, so `@Autowired` is optional. In most modern projects, we use Lombok's `@RequiredArgsConstructor`, which generates that constructor. During application startup, the Spring IoC container scans for beans, creates them, resolves constructor dependencies, and injects them automatically. The IoC container—not Lombok or `@Autowired`—is responsible for creating and wiring the objects."
+
+
 
 ---
 
