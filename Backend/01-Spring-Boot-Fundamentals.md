@@ -231,8 +231,8 @@ class UserController {
 
 Spring automatically:
 
-1. Creates `UserService`
-2. Creates `UserController`
+1. Creates `UserService` Object
+2. Creates `UserController` Object
 3. Injects `UserService` into `UserController`
 
 **Control of object creation is transferred from the application to the Spring Container.**
