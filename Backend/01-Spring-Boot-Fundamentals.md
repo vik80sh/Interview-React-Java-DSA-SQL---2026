@@ -197,6 +197,292 @@ You can answer:
 > "Starting with Spring 4.3, if a bean has only one constructor, Spring automatically treats it as the injection constructor, so `@Autowired` is optional. In most modern projects, we use Lombok's `@RequiredArgsConstructor`, which generates that constructor. During application startup, the Spring IoC container scans for beans, creates them, resolves constructor dependencies, and injects them automatically. The IoC container—not Lombok or `@Autowired`—is responsible for creating and wiring the objects."
 
 
+# Spring IoC & Dependency Injection – Interview Notes
+
+---
+
+# 1. What is IoC (Inversion of Control)?
+
+**Definition:**
+
+> **Inversion of Control (IoC)** is a design principle where the **Spring IoC Container** creates, manages, and injects objects (beans) instead of the application creating them using `new`.
+
+### Without IoC
+
+```java
+UserService service = new UserService();
+UserController controller = new UserController(service);
+```
+
+Here, the application controls object creation.
+
+### With IoC
+
+```java
+@Service
+class UserService {}
+
+@RestController
+@RequiredArgsConstructor
+class UserController {
+    private final UserService userService;
+}
+```
+
+Spring automatically:
+
+1. Creates `UserService`
+2. Creates `UserController`
+3. Injects `UserService` into `UserController`
+
+**Control of object creation is transferred from the application to the Spring Container.**
+
+---
+
+# 2. What is Dependency Injection (DI)?
+
+**Definition:**
+
+> Dependency Injection is the process by which the Spring IoC Container provides required dependencies to a class instead of the class creating them itself.
+
+Example:
+
+```java
+@RequiredArgsConstructor
+@RestController
+public class UserController {
+
+    private final UserService userService;
+}
+```
+
+Spring injects `UserService` automatically.
+
+**IoC is the principle.**
+
+**Dependency Injection is one way Spring implements IoC.**
+
+---
+
+# 3. IoC vs Dependency Injection
+
+| IoC                             | Dependency Injection                    |
+| ------------------------------- | --------------------------------------- |
+| Design Principle                | Implementation Technique                |
+| Spring controls object creation | Spring injects dependencies             |
+| Implemented using DI            | Constructor, Setter, or Field Injection |
+
+---
+
+# 4. Dependency Injection Methods
+
+## A. Constructor Injection ✅ (Recommended)
+
+```java
+@RestController
+@RequiredArgsConstructor
+public class UserController {
+
+    private final UserService userService;
+}
+```
+
+Lombok generates:
+
+```java
+public UserController(UserService userService) {
+    this.userService = userService;
+}
+```
+
+### Advantages
+
+* ✅ Recommended by Spring
+* ✅ Supports `final` fields
+* ✅ Easy to test
+* ✅ Dependencies are explicit
+* ✅ Prevents NullPointerException
+* ✅ Immutable dependencies
+
+---
+
+## B. Setter Injection
+
+```java
+@RestController
+public class UserController {
+
+    private UserService userService;
+
+    @Autowired
+    public void setUserService(UserService userService) {
+        this.userService = userService;
+    }
+}
+```
+
+### Advantages
+
+* Good for optional dependencies
+* Dependency can be changed later
+
+### Disadvantages
+
+* Can be `null`
+* Object can exist in an incomplete state
+* Less suitable for required dependencies
+
+---
+
+## C. Field Injection ❌
+
+```java
+@RestController
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+}
+```
+
+### Disadvantages
+
+* Hard to unit test
+* Uses reflection
+* Hidden dependencies
+* Cannot use `final`
+* Not recommended in modern Spring applications
+
+---
+
+# 5. Why Constructor Injection is Best
+
+* Dependencies are mandatory
+* Supports immutable (`final`) fields
+* Easy unit testing
+* Clear and explicit dependencies
+* Recommended by Spring
+
+---
+
+# 6. Why We Don't Use `@Autowired` Nowadays
+
+Since **Spring 4.3**, if a class has **only one constructor**, Spring automatically uses it for dependency injection.
+
+Example:
+
+```java
+@RestController
+public class UserController {
+
+    private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+}
+```
+
+No `@Autowired` needed.
+
+With Lombok:
+
+```java
+@RequiredArgsConstructor
+@RestController
+public class UserController {
+
+    private final UserService userService;
+}
+```
+
+Lombok generates the constructor, and Spring injects the dependency automatically.
+
+> **Lombok only generates constructors. Spring performs Dependency Injection.**
+
+---
+
+# 7. Spring Bean Lifecycle
+
+```
+Application Starts
+        │
+        ▼
+Component Scan
+        │
+        ▼
+Bean Instantiation
+(new Object())
+        │
+        ▼
+Dependency Injection
+(Constructor/Setter/Field)
+        │
+        ▼
+@PostConstruct
+        │
+        ▼
+Bean Ready
+        │
+        ▼
+Application Running
+        │
+        ▼
+Application Stops
+        │
+        ▼
+@PreDestroy
+        │
+        ▼
+Bean Destroyed
+```
+
+---
+
+# 8. `@PostConstruct`
+
+Runs **after dependency injection**.
+
+Used for:
+
+* Cache initialization
+* Loading configuration
+* Opening resources
+* Validation
+
+```java
+@PostConstruct
+public void init() {
+    System.out.println("Bean initialized");
+}
+```
+
+---
+
+# 9. `@PreDestroy`
+
+Runs **before bean destruction**.
+
+Used for:
+
+* Closing database connections
+* Closing files
+* Releasing resources
+* Stopping background threads
+
+```java
+@PreDestroy
+public void cleanup() {
+    System.out.println("Bean destroyed");
+}
+```
+
+---
+
+# 10. Interview Summary (30 Seconds)
+
+> **IoC (Inversion of Control)** means Spring manages object creation and lifecycle instead of the application creating objects with `new`. **Dependency Injection** is the mechanism Spring uses to provide required dependencies to those objects. Spring supports constructor, setter, and field injection, but **constructor injection is the recommended approach** because it supports immutable (`final`) fields, makes dependencies explicit, and is easier to unit test. In modern Spring Boot, `@Autowired` is optional for a class with a single constructor, and Lombok's `@RequiredArgsConstructor` is commonly used to generate that constructor automatically.
+
 
 ---
 
