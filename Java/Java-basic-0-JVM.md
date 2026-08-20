@@ -428,7 +428,8 @@ public class Main {
 }
 ```
 
-
+‐------------
+````
 
 JVM Memory
 │
@@ -472,6 +473,8 @@ JVM Memory
 └── Native Method Stack
     └── Native method execution
         └── Used when Java calls native/non-Java code
+
+````
 
 One-line meaning
 
