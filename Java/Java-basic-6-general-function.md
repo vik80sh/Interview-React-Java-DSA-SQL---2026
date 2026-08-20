@@ -2,7 +2,7 @@ Good 👍 very important concept (base of Java 8)
 
 ---
 
-# #### 🔹 What is stream() ?
+##### 🔹 What is stream() ?
 
 👉 `stream()` is a method that converts a **collection into a Stream**
 
@@ -10,14 +10,14 @@ Good 👍 very important concept (base of Java 8)
 
 ---
 
-# #### 🔹 Simple Meaning
+##### 🔹 Simple Meaning
 
 👉 Collection → data storage
 👉 Stream → data processing
 
 ---
 
-# #### 🔹 Example
+##### 🔹 Example
 
 ```java
 List<Integer> list = Arrays.asList(1,2,3,4);
@@ -34,7 +34,7 @@ list.stream()
 
 ---
 
-# #### 🔹 Why we use stream() ?
+##### 🔹 Why we use stream() ?
 
 👉 To perform operations like:
 
@@ -47,7 +47,7 @@ list.stream()
 
 ---
 
-# #### 🔹 Without Stream (old way)
+##### 🔹 Without Stream (old way)
 
 ```java
 for(int i : list) {
@@ -59,7 +59,7 @@ for(int i : list) {
 
 ---
 
-# #### 🔹 With Stream
+##### 🔹 With Stream
 
 ```java
 list.stream()
@@ -71,7 +71,7 @@ list.stream()
 
 ---
 
-# #### 🔹 Important Points
+##### 🔹 Important Points
 
 * Stream **does not store data**
 * It **processes data**
@@ -79,14 +79,14 @@ list.stream()
 
 ---
 
-# #### 🔹 Types of Stream
+##### 🔹 Types of Stream
 
 * `stream()` → sequential
 * `parallelStream()` → parallel processing
 
 ---
 
-# #### 🔹 Stream Flow
+##### 🔹 Stream Flow
 
 👉 Source → Intermediate → Terminal
 
@@ -100,13 +100,13 @@ list.stream()              // source
 
 ---
 
-# #### 🔥 Interview One-Liner
+##### 🔥 Interview One-Liner
 
 👉 `stream()` converts collection into stream for processing
 
 ---
 
-# #### ⚡ Quick Revision
+##### ⚡ Quick Revision
 
 * Collection → store
 * Stream → process
@@ -118,7 +118,7 @@ Good 👍 very important concept (base of Java 8)
 
 ---
 
-# #### 🔹 What is stream() ?
+##### 🔹 What is stream() ?
 
 👉 `stream()` is a method that converts a **collection into a Stream**
 
@@ -126,14 +126,14 @@ Good 👍 very important concept (base of Java 8)
 
 ---
 
-# #### 🔹 Simple Meaning
+##### 🔹 Simple Meaning
 
 👉 Collection → data storage
 👉 Stream → data processing
 
 ---
 
-# #### 🔹 Example
+##### 🔹 Example
 
 ```java
 List<Integer> list = Arrays.asList(1,2,3,4);
@@ -150,7 +150,7 @@ list.stream()
 
 ---
 
-# #### 🔹 Why we use stream() ?
+##### 🔹 Why we use stream() ?
 
 👉 To perform operations like:
 
@@ -163,7 +163,7 @@ list.stream()
 
 ---
 
-# #### 🔹 Without Stream (old way)
+##### 🔹 Without Stream (old way)
 
 ```java
 for(int i : list) {
@@ -175,7 +175,7 @@ for(int i : list) {
 
 ---
 
-# #### 🔹 With Stream
+##### 🔹 With Stream
 
 ```java
 list.stream()
@@ -187,7 +187,7 @@ list.stream()
 
 ---
 
-# #### 🔹 Important Points
+##### 🔹 Important Points
 
 * Stream **does not store data**
 * It **processes data**
@@ -195,14 +195,14 @@ list.stream()
 
 ---
 
-# #### 🔹 Types of Stream
+##### 🔹 Types of Stream
 
 * `stream()` → sequential
 * `parallelStream()` → parallel processing
 
 ---
 
-# #### 🔹 Stream Flow
+##### 🔹 Stream Flow
 
 👉 Source → Intermediate → Terminal
 
@@ -216,13 +216,13 @@ list.stream()              // source
 
 ---
 
-# #### 🔥 Interview One-Liner
+##### 🔥 Interview One-Liner
 
 👉 `stream()` converts collection into stream for processing
 
 ---
 
-# #### ⚡ Quick Revision
+##### ⚡ Quick Revision
 
 * Collection → store
 * Stream → process
