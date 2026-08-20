@@ -495,6 +495,9 @@ Native Method Stack
 
 And the most important relationship
 
+
+```
+
 class Employee
        │
        │ class information
@@ -509,6 +512,9 @@ Heap
        ▲
        │
 JVM Stack
+
+```
+
 
 So when you see:
 
