@@ -400,7 +400,8 @@ Answer structure:
 Absolutely. Let's use a Spring Boot-style Java example, because it makes the JVM memory areas much easier to understand.
 
 Example
-java```
+
+```java
 
 class User {
     private int id;
@@ -415,7 +416,6 @@ class User {
         System.out.println(name);
     }
 }
-
 public class Main {
     public static void main(String[] args) {
         int count = 10;
@@ -426,7 +426,6 @@ public class Main {
         user1.printUser();
     }
 }
-
 ```
 
 
