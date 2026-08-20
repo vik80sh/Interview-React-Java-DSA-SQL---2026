@@ -400,6 +400,7 @@ Answer structure:
 Absolutely. Let's use a Spring Boot-style Java example, because it makes the JVM memory areas much easier to understand.
 
 Example
+java```
 
 class User {
     private int id;
@@ -426,91 +427,98 @@ public class Main {
     }
 }
 
-Now imagine the JVM is running this program:
-
-JVM MEMORY
-┌──────────────────────────────────────────────────────────────┐
-│                                                              │
-│  ┌────────────────────── METHOD AREA ──────────────────────┐ │
-│  │                                                          │ │
-│  │  User Class Metadata                                     │ │
-│  │  • Class name: User                                      │ │
-│  │  • Fields: id, name                                      │ │
-│  │  • Methods: User(), printUser()                          │ │
-│  │  • Method bytecode                                       │ │
-│  │  • Parent class: Object                                  │ │
-│  │                                                          │ │
-│  │  Main Class Metadata                                     │ │
-│  │  • main() bytecode                                      │ │
-│  └──────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌────────────────────────── HEAP ─────────────────────────┐ │
-│  │                                                          │ │
-│  │   User Object #1                User Object #2             │ │
-│  │   ┌─────────────────┐           ┌─────────────────┐       │ │
-│  │   │ id   = 1        │           │ id   = 2        │       │ │
-│  │   │ name = "Vikash" │           │ name = "Rahul"  │       │ │
-│  │   └─────────────────┘           └─────────────────┘       │ │
-│  │                                                          │ │
-│  │   String objects are also stored in the heap.             │ │
-│  └──────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌──────────────────────── STACK ───────────────────────────┐ │
-│  │                                                          │ │
-│  │  main() Stack Frame                                      │ │
-│  │  ┌──────────────────────────────────────────────────┐    │ │
-│  │  │ count = 10                                       │    │ │
-│  │  │ user1 ────────────────────────┐                  │    │ │
-│  │  │ user2 ────────────────────┐   │                  │    │ │
-│  │  └───────────────────────────│───│──────────────────┘    │ │
-│  │                              │   │                       │ │
-│  │                              ▼   ▼                       │ │
-│  │                           Heap objects                   │ │
-│  │                                                          │ │
-│  │  printUser() Stack Frame                                 │ │
-│  │  • this → user1 object                                   │ │
-│  └──────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌──────────────────── PC REGISTER ────────────────────────┐ │
-│  │                                                          │ │
-│  │  Keeps track of the current JVM instruction being        │ │
-│  │  executed by this thread.                                │ │
-│  └──────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌──────────────────── NATIVE METHOD STACK ────────────────┐ │
-│  │                                                          │ │
-│  │  Used when Java calls native (non-Java) code.             │ │
-│  │  Example: JNI / operating-system-level operations.       │ │
-│  └──────────────────────────────────────────────────────────┘ │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-
-The easiest way to remember it
-
-JVM Memory	What lives there	One-line meaning
-
-Heap	Objects	Where objects created with new live
-Method Area	Class metadata, method information, runtime constant pool	Information about classes loaded by JVM
-Stack	Stack frames, local variables, references	Where each thread keeps its method execution state
-PC Register	Current instruction address	Tells the thread which JVM instruction to execute next
-Native Method Stack	Native method execution	Used when Java executes native/non-Java code
+```
 
 
-One particularly important thing
 
-Look at this:
+JVM Memory
+│
+├── Heap
+│   └── Objects created using new
+│       ├── Employee object #1
+│       │   ├── id
+│       │   └── name
+│       │
+│       └── Employee object #2
+│           ├── id
+│           └── name
+│
+├── Method Area
+│   └── Class-level information
+│       ├── Employee class metadata
+│       │   ├── Class name
+│       │   ├── Fields information
+│       │   ├── Methods information
+│       │   ├── Method bytecode
+│       │   ├── Parent class
+│       │   ├── Interfaces
+│       │   └── Constant-pool information
+│       │
+│       └── Main class metadata
+│           ├── Class name
+│           └── main() method information
+│
+├── JVM Stack
+│   └── One stack per thread
+│       └── Stack frames
+│           ├── Local variables
+│           ├── Object references
+│           ├── Method parameters
+│           └── Intermediate calculations
+│
+├── PC Register
+│   └── One per thread
+│       └── Address of the current instruction
+│
+└── Native Method Stack
+    └── Native method execution
+        └── Used when Java calls native/non-Java code
 
-User user1 = new User(1, "Vikash");
+One-line meaning
 
-It involves both Stack and Heap:
+Heap
+→ Stores actual objects and their instance data.
 
-Stack                         Heap
+Method Area
+→ Stores information about loaded classes.
 
-user1 ──────────────────────► User Object
-                              ┌──────────────┐
-                              │ id = 1       │
-                              │ name = ...   │
-                              └──────────────┘
+JVM Stack
+→ Stores method execution data for each thread.
+
+PC Register
+→ Keeps track of the current instruction being executed.
+
+Native Method Stack
+→ Handles execution of native methods.
+
+And the most important relationship
+
+class Employee
+       │
+       │ class information
+       ▼
+Method Area
+       │
+       │ new Employee()
+       ▼
+Heap
+       │
+       │ object reference
+       ▲
+       │
+JVM Stack
+
+So when you see:
+
+Employee emp = new Employee();
+
+think:
+
+Method Area → Employee class information
+
+Heap        → new Employee() object
+
+Stack       → emp reference
 
 user1 is a reference variable, stored in the main() stack frame.
 
