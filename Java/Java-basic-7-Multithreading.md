@@ -1,6 +1,6 @@
 
 
-# #### 🔹 Why Multithreading?
+#### 🔹 Why Multithreading?
 
 👉 Run multiple tasks **parallel**
 
@@ -11,11 +11,11 @@ Example:
 
 ---
 
-# #### 🔹 Thread Creation (Deep Understanding)
+#### 🔹 Thread Creation (Deep Understanding)
 
 ---
 
-## 📌 Method 1: Thread Class
+### 📌 Method 1: Thread Class
 
 ```java
 class MyThread extends Thread {
@@ -72,7 +72,7 @@ t.start();
 
 ---
 
-# #### 🔹 start() vs run() (Very Important)
+#### 🔹 start() vs run() (Very Important)
 
 ```java
 t.start(); // new thread
@@ -119,7 +119,7 @@ Thread-1
 
 ---
 
-# #### 🔹 Race Condition (Problem)
+#### 🔹 Race Condition (Problem)
 
 ```java
 class Counter {
@@ -139,7 +139,7 @@ class Counter {
 
 ---
 
-# #### 🔹 Solution: synchronized
+#### 🔹 Solution: synchronized
 
 ```java
 synchronized void increment() {
@@ -151,7 +151,7 @@ synchronized void increment() {
 
 ---
 
-# #### 🔹 Synchronized Block
+#### 🔹 Synchronized Block
 
 ```java
 void increment() {
@@ -165,7 +165,7 @@ void increment() {
 
 ---
 
-# #### 🔹 Deadlock Example
+#### 🔹 Deadlock Example
 
 ```java
 synchronized(obj1) {
@@ -185,7 +185,7 @@ synchronized(obj2) {
 
 ---
 
-# #### 🔹 sleep() Example
+#### 🔹 sleep() Example
 
 ```java
 try {
@@ -199,7 +199,7 @@ try {
 
 ---
 
-# #### 🔹 join() Example
+#### 🔹 join() Example
 
 ```java
 Thread t1 = new Thread(() -> {
@@ -223,7 +223,7 @@ Main
 
 ---
 
-# #### 🔹 wait() & notify()
+#### 🔹 wait() & notify()
 
 👉 Used for **thread communication**
 
@@ -246,7 +246,7 @@ synchronized(obj) {
 
 ---
 
-# #### 🔹 volatile (Important)
+#### 🔹 volatile (Important)
 
 ```java
 volatile boolean flag = true;
@@ -258,7 +258,7 @@ volatile boolean flag = true;
 
 ---
 
-# #### 🔹 Executor Framework (Best Practice)
+#### 🔹 Executor Framework (Best Practice)
 
 👉 Instead of manual threads
 
@@ -276,7 +276,7 @@ ex.shutdown();
 
 ---
 
-# #### 🔹 Thread States
+#### 🔹 Thread States
 
 1. NEW
 2. RUNNABLE
@@ -286,7 +286,7 @@ ex.shutdown();
 
 ---
 
-# #### 🔥 Real Interview Questions
+#### 🔥 Real Interview Questions
 
 ---
 
@@ -322,7 +322,7 @@ ex.shutdown();
 
 ---
 
-# #### ⚡ Quick Revision
+#### ⚡ Quick Revision
 
 * start() → new thread
 * run() → normal call
@@ -335,7 +335,7 @@ ex.shutdown();
 
 ---
 
-# #### 🔥 Next (Important)
+#### 🔥 Next (Important)
 
 👉 **Java 8 (Lambda + Stream deep)**
 OR
