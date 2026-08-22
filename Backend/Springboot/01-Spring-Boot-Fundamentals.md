@@ -1,4 +1,4 @@
-# Spring Boot Fundamentals 
+# Spring Boot Fundamentals (Beginner-Friendly)
 
 This file is written for someone who has never built a Spring Boot app before. Read it top to bottom, in order, once — it builds one idea at a time and doesn't repeat itself, so skipping ahead will feel confusing.
 
@@ -194,7 +194,7 @@ public UserService(UserRepository repository) {
 
 Same class, same fields — the only thing that changed is *which rule* Lombok used to decide what belongs in the constructor. `final` is the natural marker for "this must be supplied from outside, and never reassigned after" — which is exactly what a dependency is, and exactly what an ordinary configuration flag is not. That's why the convention is: dependencies are `final`, everything else isn't, and you reach for `@RequiredArgsConstructor` by default and treat `@AllArgsConstructor` on a Spring bean as a smell — it works fine right up until someone adds one ordinary field, and then it silently breaks startup with an error that points nowhere near the real cause.
 
-**This trap is specific to Spring-managed beans — it does not apply to DTOs, entities, or plain value objects.** The whole problem only exists because *Spring itself* calls the constructor of a `@Service`/`@Component`/etc. and tries to inject a bean into every parameter. A class like `UserResponse` from section 7 is never annotated `@Component`, so Spring never touches its constructor at all — *you* call `new UserResponse(id, name, email)` yourself, or a mapping library does. There's no injection happening, so there's nothing to break:
+**This trap is specific to Spring-managed beans — it does not apply to DTOs, entities, or plain value objects.** The whole problem only exists because *Spring itself* calls the constructor of a `@Service`/`@Component`/etc. and tries to inject a bean into every parameter. A class like `UserResponse` (section 7) is never annotated `@Component`, so Spring never touches its constructor at all — *you* call `new UserResponse(id, name, email)` yourself, or a mapping library does. There's no injection happening, so there's nothing to break:
 
 ```java
 @AllArgsConstructor   // completely fine — this class is never constructed by Spring
@@ -350,6 +350,22 @@ Rule of thumb: stereotype annotations for classes you own, `@Bean` for anything 
 
 **Proxies.** Annotations like `@Transactional`, `@Cacheable`, and `@Async` aren't magic keywords — Spring wraps the bean in a **proxy**: a stand-in that intercepts the call, does its extra behavior, then calls your real method. The gotcha: the proxy only gets involved on a call from *outside* the bean. A self-invocation (`this.someAsyncMethod()`) from inside the same class bypasses the proxy entirely, so the annotation silently does nothing. This is a common real bug — the fix is to call the annotated method through a different bean.
 
+### So, out of everything above, which one actually *is* DI?
+
+This trips almost everyone up, because several things in this section *look* related to DI but aren't it. Here's the direct answer, laid out plainly:
+
+**DI is specifically this: a class declaring a dependency as a constructor parameter, and something else supplying the real object for that parameter.** It lives in exactly one place — the constructor's parameter list (or a setter/field, less preferably). Nothing else on this list is DI:
+
+| Thing | Is it DI? | What it actually is |
+|---|---|---|
+| `@Service` / `@Component` / `@Repository` / `@RestController` | **No** | Bean *registration* — "Spring, please create and manage this object." This is the IoC side: getting the object *into* the container in the first place. |
+| `@Bean` methods in a `@Configuration` class | **No** | Also registration — a different way to get an object into the container, for classes you can't annotate directly. |
+| `@RequiredArgsConstructor` / `@AllArgsConstructor` (Lombok) | **No** | Just constructor *generation*. Lombok has no idea Spring exists; it only decides which fields become parameters. |
+| `Car(Engine engine)` — the constructor parameter itself | **Yes — this is it** | The class saying "I need an `Engine`, give me one" instead of building it. This declaration is the DI. |
+| Spring seeing that parameter and handing in a real `PetrolEngine` bean | **Yes — this is DI happening** | The runtime act of injection: the container supplying the object the constructor asked for. |
+
+One sentence to keep: **stereotype annotations and `@Bean` get an object *into* the container; DI is what happens *at the constructor* when the container hands dependencies *between* objects already in there.** They're two different steps of the same overall process — registration first, injection second — and only the second one is DI.
+
 ## 9. Auto-Configuration
 
 Everything above is really just "Spring" — the container, DI, beans. Spring **Boot** adds one thing on top: it tries to configure sensible beans for you automatically, based on what's in your project.
@@ -487,47 +503,51 @@ Every Spring Boot app runs on an `ApplicationContext`; you'll essentially never 
 
 **Answer:** Stereotype annotations only work on classes you wrote. For a third-party class, or one needing explicit construction, write a `@Bean` factory method inside a `@Configuration` class instead.
 
-### 5. Why might `@Transactional` appear to silently not work?
+### 5. Are `@Service`/`@Component`/`@Repository` themselves dependency injection?
+
+**Answer:** No. They only register a class as a bean so Spring's container creates and manages it — that's the IoC/registration side. DI is a separate, later step: it's what happens at a bean's *constructor*, when Spring supplies a matching bean for each declared parameter. You could swap `@Service` for `@Component` on a class and its injection behavior wouldn't change at all, which is proof the stereotype annotation isn't what performs the injecting.
+
+### 6. Why might `@Transactional` appear to silently not work?
 
 **Answer:** It's implemented via a proxy. A self-invocation from inside the same class bypasses the proxy entirely. It can also fail to roll back on a checked exception without `rollbackFor`.
 
-### 6. What is Spring Boot auto-configuration, concretely?
+### 7. What is Spring Boot auto-configuration, concretely?
 
 **Answer:** Conditionally-activated configuration classes, gated by annotations like `@ConditionalOnClass` and `@ConditionalOnMissingBean`, that create default beans when certain libraries are present and no conflicting bean already exists.
 
-### 7. Why should a controller return a DTO instead of the entity?
+### 8. Why should a controller return a DTO instead of the entity?
 
 **Answer:** Returning the entity couples the API to the database schema, risks serializing fields never meant to be public, and can trigger lazy-loading errors. A DTO keeps the API and the database model free to evolve independently.
 
-### 8. What makes a singleton bean unsafe, and when?
+### 9. What makes a singleton bean unsafe, and when?
 
 **Answer:** Only when it stores mutable, request-specific state in an instance field — concurrent requests would race on that field. Request data should live in local variables, not bean fields.
 
-### 9. How would you debug a bean Spring says it can't find?
+### 10. How would you debug a bean Spring says it can't find?
 
 **Answer:** Check the class is within component-scan's package boundary, check `@Profile`/`@Conditional*` properties, check the constructor's dependencies are themselves satisfiable, and check whether multiple candidates need a `@Qualifier`. Read the actual startup error and condition evaluation report before adding speculative annotations.
 
-### 10. Walk through the request flow in Spring MVC.
+### 11. Walk through the request flow in Spring MVC.
 
 **Answer:** Filters run first, then `DispatcherServlet` matches the request to a controller method. Argument resolvers build the method's parameters, the controller delegates to a service, and a message converter serializes the response. `@RestControllerAdvice` can centralize exception handling across controllers.
 
-### 11. How does Spring handle a circular dependency, and how do you actually fix it?
+### 12. How does Spring handle a circular dependency, and how do you actually fix it?
 
 **Answer:** With constructor injection, Spring fails startup immediately with `BeanCurrentlyInCreationException`. The real fix is to remove the cycle — extract shared behavior into a third bean, or make the dependency one-directional. `@Lazy` unblocks startup but is a stopgap, not a design fix.
 
-### 12. Why can adding an unrelated `boolean` field to a `@Service` class break startup?
+### 13. Why can adding an unrelated `boolean` field to a `@Service` class break startup?
 
-**Answer:** If the class uses `@AllArgsConstructor`, every field — not just `final` dependencies — becomes a constructor parameter, including the new `boolean`. Spring has no bean of that type, so startup fails with `NoSuchBeanDefinitionException`, an error naming a missing bean when the real cause is the Lombok annotation. `@RequiredArgsConstructor` avoids this by only including `final` fields.
+**Answer:** If the class uses `@AllArgsConstructor`, every field — not just `final` dependencies — becomes a constructor parameter, including the new `boolean`. Spring has no bean of that type, so startup fails with `NoSuchBeanDefinitionException`, an error naming a missing bean when the real cause is the Lombok annotation. `@RequiredArgsConstructor` avoids this by only including `final` fields. Note this trap is specific to Spring beans — the same annotation on a plain DTO or entity is completely fine, since Spring never constructs those.
 
-### 13. What's the difference between `BeanFactory` and `ApplicationContext`?
+### 14. What's the difference between `BeanFactory` and `ApplicationContext`?
 
 **Answer:** `BeanFactory` is the root container: lazy bean creation, only built when first requested. `ApplicationContext` extends it with eager singleton initialization, event publication, internationalization, and AOP integration. Every real app runs on an `ApplicationContext`.
 
-### 14. What does `@ConditionalOnMissingBean` actually enable?
+### 15. What does `@ConditionalOnMissingBean` actually enable?
 
 **Answer:** It makes an auto-configured bean activate only if no bean of that type already exists. Your own `@Bean` is seen first, so the auto-configured version never activates — no conflict, by design.
 
-### 15. Besides `@PostConstruct`/`@PreDestroy`, what else hooks into a bean's lifecycle?
+### 16. Besides `@PostConstruct`/`@PreDestroy`, what else hooks into a bean's lifecycle?
 
 **Answer:** `InitializingBean`/`DisposableBean` give identical timing via interfaces, and a separately-registered `BeanPostProcessor` can inspect or wrap every bean around its initialization — the mechanism Spring uses internally to attach proxies like the one behind `@Transactional`.
 
@@ -536,12 +556,13 @@ Every Spring Boot app runs on an `ApplicationContext`; you'll essentially never 
 - [ ] Explain, using `Car`/`Engine`, why a class building its own dependency with `new` is a problem.
 - [ ] Explain DI as "hand it in from outside" — and that this has nothing to do with Spring by itself.
 - [ ] Explain IoC as "the container is in charge of creating objects" — and DI as the mechanism it uses.
+- [ ] Say precisely where DI "lives" — the constructor parameter list — and why `@Service`/`@Component`/`@Bean`/Lombok annotations are registration or code-generation, not DI itself.
 - [ ] Write the `main` class from memory and explain what `@SpringBootApplication` and `SpringApplication.run(...)` each do.
 - [ ] Draw the startup sequence and the HTTP request flow without looking at the notes.
 - [ ] Explain when to use `@Bean` vs a stereotype annotation like `@Service`.
 - [ ] Explain why a self-invocation call can silently bypass `@Transactional`/`@Async`/`@Cacheable`.
 - [ ] Build a controller-service-repository slice from scratch, using a DTO for the response.
 - [ ] Explain why Spring fails fast on a circular constructor dependency, and when `@Lazy` is the right stopgap.
-- [ ] Explain the `@AllArgsConstructor` → `NoSuchBeanDefinitionException` trap and why `@RequiredArgsConstructor` avoids it.
+- [ ] Explain the `@AllArgsConstructor` → `NoSuchBeanDefinitionException` trap, why `@RequiredArgsConstructor` avoids it, and why the trap doesn't apply to plain DTOs/entities.
 - [ ] Explain `BeanFactory` vs `ApplicationContext`, and name the `@Conditional*` annotations behind auto-configuration.
 - [ ] Explain `InitializingBean`/`DisposableBean`/`BeanPostProcessor` as the interface-based alternative to `@PostConstruct`/`@PreDestroy`.
