@@ -1,4 +1,4 @@
-# Spring Boot Fundamentals
+# Spring Boot Fundamentals 
 
 This file is written for someone who has never built a Spring Boot app before. Read it top to bottom, in order, once — it builds one idea at a time and doesn't repeat itself, so skipping ahead will feel confusing.
 
@@ -193,6 +193,19 @@ public UserService(UserRepository repository) {
 ```
 
 Same class, same fields — the only thing that changed is *which rule* Lombok used to decide what belongs in the constructor. `final` is the natural marker for "this must be supplied from outside, and never reassigned after" — which is exactly what a dependency is, and exactly what an ordinary configuration flag is not. That's why the convention is: dependencies are `final`, everything else isn't, and you reach for `@RequiredArgsConstructor` by default and treat `@AllArgsConstructor` on a Spring bean as a smell — it works fine right up until someone adds one ordinary field, and then it silently breaks startup with an error that points nowhere near the real cause.
+
+**This trap is specific to Spring-managed beans — it does not apply to DTOs, entities, or plain value objects.** The whole problem only exists because *Spring itself* calls the constructor of a `@Service`/`@Component`/etc. and tries to inject a bean into every parameter. A class like `UserResponse` from section 7 is never annotated `@Component`, so Spring never touches its constructor at all — *you* call `new UserResponse(id, name, email)` yourself, or a mapping library does. There's no injection happening, so there's nothing to break:
+
+```java
+@AllArgsConstructor   // completely fine — this class is never constructed by Spring
+public class UserResponse {
+    private final Long id;
+    private final String name;
+    private final String email;
+}
+```
+
+So the real rule is narrower than "avoid `@AllArgsConstructor` everywhere": on a **Spring bean** (anything Spring scans and constructs — `@Service`, `@Component`, `@Repository`, `@RestController`), prefer `@RequiredArgsConstructor`. On a **plain object** Spring never constructs — a DTO, a JPA entity, a simple data holder — `@AllArgsConstructor` is normal and often exactly what you want.
 
 ## 6. The File That Starts Everything: `main`
 
