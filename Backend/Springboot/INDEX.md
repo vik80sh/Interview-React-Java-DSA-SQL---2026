@@ -12,6 +12,7 @@ This folder is a learning path, not a collection of claims about interview perce
 6. [Concurrency and Asynchronous Processing](06-Concurrency-Async.md)
 7. [Common Backend Problems and Reliable Patterns](07-Common-Backend-Problems.md)
 8. [AOP, Actuator, and Microservice Communication](08-AOP-Actuator-Microservices.md)
+9. [Annotations Reference](09-Annotations-Reference.md) — a lookup table, read after the guides above, not instead of them
 
 ## What Mastery Looks Like
 
