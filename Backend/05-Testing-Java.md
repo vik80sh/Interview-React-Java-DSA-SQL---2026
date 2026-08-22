@@ -1,590 +1,134 @@
-# Testing Java - JUnit, Mockito, Integration Tests
-## Complete Testing Guide for Backend
+# Testing Java Backend Applications
 
----
+Testing is a feedback system. The goal is confidence in behavior and fast diagnosis, not a percentage detached from risk. A useful test names a behavior, controls its inputs, and fails for a meaningful reason.
 
-## TABLE OF CONTENTS
-1. JUnit Basics & Annotations
-2. Mockito Mocking Framework
-3. Integration Testing with Spring
-4. Test Organization & Best Practices
-5. Common Interview Questions
-
----
-
-# PART 1: JUNIT BASICS
-
-## JUnit Setup & Annotations
-
-```xml
-<!-- pom.xml -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-test</artifactId>
-    <scope>test</scope>
-</dependency>
-```
-
-```java
-@SpringBootTest // For integration tests
-class UserServiceTest {
-    
-    @Test // Mark as test method
-    void testGetUserById() {
-        // Arrange
-        // Act
-        // Assert
-    }
-    
-    @BeforeEach // Runs before each test
-    void setUp() {
-        // Initialize test data
-    }
-    
-    @AfterEach // Runs after each test
-    void tearDown() {
-        // Cleanup
-    }
-    
-    @BeforeAll // Runs once before all tests
-    static void setupAll() {
-        // One-time setup
-    }
-    
-    @DisplayName("Should get user by valid ID")
-    @Test
-    void shouldGetUserByValidId() { }
-    
-    @Disabled("Not implemented yet")
-    @Test
-    void incompleteTest() { }
-}
-```
-
----
-
-## Assertions
-
-```java
-@Test
-void testUserCreation() {
-    User user = new User("John", "john@example.com");
-    
-    // Equality
-    assertEquals("John", user.getName());
-    assertEquals(1L, user.getId());
-    
-    // Null checks
-    assertNull(user.getDeletedAt());
-    assertNotNull(user.getCreatedAt());
-    
-    // Boolean
-    assertTrue(user.isActive());
-    assertFalse(user.isDeleted());
-    
-    // Collections
-    List<String> roles = user.getRoles();
-    assertFalse(roles.isEmpty());
-    assertTrue(roles.contains("USER"));
-    
-    // Exceptions
-    assertThrows(IllegalArgumentException.class, () -> {
-        new User("", "email@example.com");
-    });
-    
-    // All conditions (fails on first false)
-    assertAll("User validation",
-        () -> assertEquals("John", user.getName()),
-        () -> assertNotNull(user.getId()),
-        () -> assertTrue(user.isActive())
-    );
-}
-```
-
----
-
-# PART 2: MOCKITO MOCKING
-
-## Basic Mocking
-
-```java
-class UserServiceTest {
-    
-    @Mock
-    private UserRepository userRepository; // Mock dependency
-    
-    @InjectMocks
-    private UserService userService; // Inject mocks into service
-    
-    @BeforeEach
-    void setUp() {
-        MockitoAnnotations.openMocks(this); // Initialize mocks
-    }
-    
-    @Test
-    void testGetUserById() {
-        // Arrange
-        User mockUser = new User(1L, "John", "john@example.com");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(mockUser));
-        
-        // Act
-        User result = userService.getUserById(1L);
-        
-        // Assert
-        assertEquals("John", result.getName());
-        verify(userRepository).findById(1L); // Verify method was called
-    }
-    
-    @Test
-    void testGetUserNotFound() {
-        // Arrange
-        when(userRepository.findById(999L)).thenReturn(Optional.empty());
-        
-        // Act & Assert
-        assertThrows(UserNotFoundException.class, () -> {
-            userService.getUserById(999L);
-        });
-    }
-    
-    @Test
-    void testCreateUser() {
-        // Arrange
-        User newUser = new User("Jane", "jane@example.com");
-        User savedUser = new User(2L, "Jane", "jane@example.com");
-        when(userRepository.save(any(User.class))).thenReturn(savedUser);
-        
-        // Act
-        User result = userService.createUser(newUser);
-        
-        // Assert
-        assertEquals(2L, result.getId());
-        verify(userRepository).save(any(User.class));
-    }
-}
-```
-
----
-
-## Advanced Mocking
-
-```java
-@Test
-void testCreateUserMultipleTimes() {
-    User mockUser = new User(1L, "John", "john@example.com");
-    
-    // Return different values on successive calls
-    when(userRepository.save(any())).thenReturn(mockUser)
-                                     .thenThrow(new RuntimeException("DB error"))
-                                     .thenReturn(mockUser);
-    
-    User result1 = userService.createUser(new User());
-    assertEquals(1L, result1.getId());
-    
-    assertThrows(RuntimeException.class, () -> userService.createUser(new User()));
-    
-    User result2 = userService.createUser(new User());
-    assertEquals(1L, result2.getId());
-}
-
-@Test
-void testVerifyMethodCalls() {
-    User mockUser = new User(1L, "John", "john@example.com");
-    when(userRepository.findById(1L)).thenReturn(Optional.of(mockUser));
-    
-    userService.getUserById(1L);
-    userService.getUserById(1L);
-    
-    // Verify called exactly twice
-    verify(userRepository, times(2)).findById(1L);
-    
-    // Verify never called
-    verify(userRepository, never()).save(any());
-    
-    // Verify called at least once
-    verify(userRepository, atLeastOnce()).findById(1L);
-}
-
-@Test
-void testCaptureArguments() {
-    ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
-    
-    User newUser = new User("John", "john@example.com");
-    when(userRepository.save(any())).thenReturn(newUser);
-    
-    userService.createUser(newUser);
-    
-    verify(userRepository).save(captor.capture());
-    User capturedUser = captor.getValue();
-    assertEquals("John", capturedUser.getName());
-}
-```
-
----
-
-# PART 3: INTEGRATION TESTING
-
-## Full Spring Context Test
-
-```java
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class UserControllerIntegrationTest {
-    
-    @Autowired
-    private TestRestTemplate restTemplate; // Real HTTP calls
-    
-    @Autowired
-    private UserRepository userRepository;
-    
-    @BeforeEach
-    void setUp() {
-        userRepository.deleteAll(); // Clean database
-    }
-    
-    @Test
-    void testCreateUserEndpoint() {
-        // Arrange
-        CreateUserRequest request = new CreateUserRequest("John", "john@example.com");
-        
-        // Act
-        ResponseEntity<User> response = restTemplate.postForEntity(
-            "/api/users",
-            request,
-            User.class
-        );
-        
-        // Assert
-        assertEquals(HttpStatus.CREATED, response.getStatusCode());
-        assertEquals("john@example.com", response.getBody().getEmail());
-        
-        // Verify in database
-        User savedUser = userRepository.findByEmail("john@example.com").get();
-        assertEquals("John", savedUser.getName());
-    }
-    
-    @Test
-    void testGetUserEndpoint() {
-        // Arrange
-        User user = userRepository.save(new User("Jane", "jane@example.com"));
-        
-        // Act
-        ResponseEntity<User> response = restTemplate.getForEntity(
-            "/api/users/" + user.getId(),
-            User.class
-        );
-        
-        // Assert
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("jane@example.com", response.getBody().getEmail());
-    }
-    
-    @Test
-    void testGetUserNotFound() {
-        // Act
-        ResponseEntity<ErrorResponse> response = restTemplate.getForEntity(
-            "/api/users/999",
-            ErrorResponse.class
-        );
-        
-        // Assert
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-    }
-}
-```
-
----
-
-## Unit Test (No Spring Context)
+## 1. JUnit and AAA
 
 ```java
 @ExtendWith(MockitoExtension.class)
-class UserServiceUnitTest {
-    
-    @Mock
-    private UserRepository userRepository;
-    
-    @InjectMocks
-    private UserService userService; // No Spring needed
-    
+class UserServiceTest {
+    @Mock UserRepository repository;
+    @InjectMocks UserService service;
+
     @Test
-    void testGetUserById() {
+    void findById_whenUserDoesNotExist_throwsNotFound() {
         // Arrange
-        User mockUser = new User(1L, "John", "john@example.com");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(mockUser));
-        
-        // Act
-        User result = userService.getUserById(1L);
-        
-        // Assert
-        assertEquals("John", result.getName());
+        when(repository.findById(99L)).thenReturn(Optional.empty());
+
+        // Act and assert
+        assertThatThrownBy(() -> service.findById(99L))
+            .isInstanceOf(UserNotFoundException.class);
     }
 }
-
-// UNIT vs INTEGRATION:
-// UNIT: Fast, isolated, mocks dependencies
-// INTEGRATION: Slow, tests real database/HTTP, full context
-//
-// Use UNIT for: Business logic, calculations, algorithms
-// Use INTEGRATION for: Database operations, API endpoints, transactions
 ```
 
----
+Arrange-Act-Assert separates setup, behavior, and proof. Use descriptive names, test one observable behavior, and use `assertAll` only when grouping independent facts helps diagnosis. Control time with an injected `Clock` rather than testing against the real system clock.
 
-# PART 4: TEST BEST PRACTICES
+## 2. Mockito Without Brittle Tests
 
-## Arrange-Act-Assert Pattern
+Mock collaborators at a boundary: repositories, message publishers, or external clients. Stub results that affect the behavior and verify interactions only when the interaction itself is a requirement, such as publishing an event exactly once. Excessive `verify` calls couple a test to implementation details and make harmless refactoring painful.
+
+Use `ArgumentCaptor` to inspect an important outbound command. Prefer a fake for a small deterministic dependency when a mock would require many stubs. A unit test should not need Spring to construct the class under test.
+
+## 3. Spring Test Slices
+
+Choose the narrowest test that proves the behavior:
+
+- `@WebMvcTest` loads MVC components and is appropriate for controller status codes, JSON, validation, and exception mapping. Use `MockMvc` and mock the service.
+- `@DataJpaTest` loads JPA components and a test database. Use it for mappings, queries, constraints, and transaction behavior.
+- `@SpringBootTest` loads the application context. Use it for wiring and cross-layer integration, not every unit test.
+- Testcontainers runs a real database or dependency in a container and catches dialect differences that H2 can hide.
+
+Example controller-slice test:
 
 ```java
-@Test
-void testGetUserById() {
-    // ARRANGE - Set up test data
-    User expectedUser = new User(1L, "John", "john@example.com");
-    when(userRepository.findById(1L)).thenReturn(Optional.of(expectedUser));
-    
-    // ACT - Execute the code being tested
-    User result = userService.getUserById(1L);
-    
-    // ASSERT - Verify the result
-    assertEquals(expectedUser, result);
-}
-```
+@WebMvcTest(UserController.class)
+class UserControllerTest {
+    @Autowired MockMvc mvc;
+    @MockBean UserService service;
 
----
-
-## Test Naming & Organization
-
-```java
-// ✅ GOOD: Clear, descriptive names
-@Test
-void testGetUserByIdWithValidId_ShouldReturnUser() { }
-
-@Test
-void testGetUserByIdWithInvalidId_ShouldThrowException() { }
-
-@Test
-void testCreateUserWithValidData_ShouldSaveAndReturnUser() { }
-
-// ❌ BAD: Unclear names
-@Test
-void test1() { }
-
-@Test
-void testUser() { }
-
-@Test
-void testCreateUser() { } // Which scenario?
-
-// ORGANIZE BY LAYER:
-// src/test/java/com/example/
-//   ├── controller/  (integration tests)
-//   ├── service/     (unit tests)
-//   ├── repository/  (integration tests)
-//   └── util/        (unit tests)
-```
-
----
-
-## Test Fixtures & Builders
-
-```java
-// TestFixtures.java
-public class TestFixtures {
-    public static User createUser(String name, String email) {
-        return new User(1L, name, email);
-    }
-    
-    public static User createAdminUser() {
-        User user = new User(1L, "Admin", "admin@example.com");
-        user.setRole(Role.ADMIN);
-        return user;
-    }
-}
-
-// Usage in tests:
-@Test
-void testGetUserById() {
-    User mockUser = TestFixtures.createUser("John", "john@example.com");
-    when(userRepository.findById(1L)).thenReturn(Optional.of(mockUser));
-    
-    User result = userService.getUserById(1L);
-    assertEquals("John", result.getName());
-}
-
-// Or use Builder Pattern:
-@Test
-void testGetUserById() {
-    User mockUser = new UserBuilder()
-        .withId(1L)
-        .withName("John")
-        .withEmail("john@example.com")
-        .build();
-    
-    when(userRepository.findById(1L)).thenReturn(Optional.of(mockUser));
-    
-    User result = userService.getUserById(1L);
-    assertEquals("John", result.getName());
-}
-```
-
----
-
-## Parameterized Tests
-
-```java
-@ParameterizedTest
-@ValueSource(strings = { "john@example.com", "jane@example.com", "admin@example.com" })
-void testValidEmails(String email) {
-    assertTrue(isValidEmail(email));
-}
-
-@ParameterizedTest
-@CsvSource({
-    "john, john@example.com, true",
-    "jane, jane@example.com, true",
-    "admin, admin@example.com, true"
-})
-void testCreateUser(String name, String email, boolean expectedActive) {
-    User user = new User(name, email);
-    assertEquals(expectedActive, user.isActive());
-}
-
-// ✅ Benefits: Test multiple scenarios with less code
-```
-
----
-
-# PART 5: INTERVIEW QUESTIONS
-
-## Question 1: Unit tests vs Integration tests
-
-**Answer:**
-```
-UNIT TESTS:
-- Test single component in isolation
-- Mock all dependencies
-- Fast (< 100ms each)
-- Use Mockito, JUnit
-- 70% of tests should be unit tests
-
-INTEGRATION TESTS:
-- Test multiple components together
-- Use real database/HTTP
-- Slower (> 1s each)
-- Use @SpringBootTest
-- 20% of tests should be integration tests
-
-E2E TESTS:
-- Test entire application end-to-end
-- Real servers, real database
-- Slowest (> 10s each)
-- Use Selenium, Cypress
-- 10% of tests should be E2E
-
-Pyramid:
-    △
-   ╱│╲ E2E (10%)
-  ╱ │ ╲
- ╱──┼──╲ Integration (20%)
-╱   │   ╲
-────┼──── Unit (70%)
-```
-
----
-
-## Question 2: How to test Spring Security?
-
-**Answer:**
-```
-@SpringBootTest
-class SecurityTest {
-    
-    @Autowired
-    private TestRestTemplate restTemplate;
-    
     @Test
-    void testPublicEndpointNoAuth() {
-        ResponseEntity<String> response = restTemplate.getForEntity(
-            "/api/public",
-            String.class
-        );
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-    }
-    
-    @Test
-    void testProtectedEndpointNoAuth() {
-        ResponseEntity<String> response = restTemplate.getForEntity(
-            "/api/users",
-            String.class
-        );
-        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
-    }
-    
-    @Test
-    void testProtectedEndpointWithAuth() {
-        TestRestTemplate authenticatedClient = restTemplate.withBasicAuth("user", "password");
-        ResponseEntity<String> response = authenticatedClient.getForEntity(
-            "/api/users",
-            String.class
-        );
-        assertEquals(HttpStatus.OK, response.getStatusCode());
+    void getUser_returns404WhenMissing() throws Exception {
+        when(service.findById(7L)).thenThrow(new UserNotFoundException(7L));
+
+        mvc.perform(get("/api/v1/users/7"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.status").value(404));
     }
 }
 ```
 
----
+Test validation failures, malformed JSON, authorization failures, and response shapes. A happy-path request alone does not test the API contract.
 
-## Question 3: How much to test?
+## 4. Integration Data and Security
 
-**Answer:**
-```
-CODE COVERAGE TARGETS:
-- Overall: 70-80% (not 100%)
-- Business logic: 90%+
-- Controllers: 80%+
-- Getters/setters: Skip (trivial)
+Integration tests should control schema creation with migrations, isolate data between tests, and use the same database family as production when behavior is database-specific. `deleteAll()` may be slow and can hide foreign-key issues; transactional rollback or container lifecycle strategies may be better depending on the test.
 
-What NOT to test:
-- Trivial getters/setters
-- Framework code (Spring handles)
-- Third-party library code
-- Generated code
+With `spring-security-test`, test authorization explicitly:
 
-What TO test:
-- Business logic
-- Edge cases
-- Error handling
-- Validations
-- Integrations
+```java
+mvc.perform(get("/api/admin/users").with(user("alice").roles("USER")))
+   .andExpect(status().isForbidden());
 
-Coverage metric: Good for tracking, not a goal!
-Better to have 60% good tests than 100% bad tests.
+mvc.perform(get("/api/admin/users").with(user("root").roles("ADMIN")))
+   .andExpect(status().isOk());
 ```
 
----
+Also test that unauthenticated requests are rejected and that object ownership is enforced. For resource-server JWTs, use the library's JWT request post-processors or a real authorization-server integration test.
 
-# SUMMARY: Testing Mastery
+## 5. Test Strategy
 
-✅ **JUnit:**
-- [ ] Know @Test, @BeforeEach, @AfterEach
-- [ ] Know assertEquals, assertTrue, assertThrows
-- [ ] Know @DisplayName
+The test pyramid is a heuristic, not a fixed 70/20/10 law. Keep many fast unit tests, enough slice and integration tests for framework boundaries, and a small number of end-to-end tests for critical journeys. Contract tests help independently deployed clients and services agree on request and response behavior.
 
-✅ **Mockito:**
-- [ ] Know @Mock, @InjectMocks
-- [ ] Know when(), verify()
-- [ ] Know ArgumentCaptor
-- [ ] Know different return strategies
+Coverage identifies unexecuted code but cannot prove assertions are meaningful. Review mutation-test survivors, edge cases, failure paths, authorization, retries, timeouts, and data constraints. A lower percentage with strong behavior assertions is better than high coverage of getters and trivial lines.
 
-✅ **Integration:**
-- [ ] Know @SpringBootTest
-- [ ] Know TestRestTemplate
-- [ ] Know database setup/teardown
+## Interview Questions and Answers
 
-✅ **Best Practices:**
-- [ ] Know AAA pattern
-- [ ] Know unit vs integration vs E2E
-- [ ] Know 70/20/10 pyramid
-- [ ] Know coverage targets
+### 1. Unit versus integration test?
 
----
+**Answer:** A unit test isolates one unit and replaces collaborators, so it is fast and diagnoses business logic failures. An integration test verifies collaboration with real framework components or infrastructure, such as JPA, HTTP serialization, or a database.
 
-**Master testing—it's 15% of backend interviews!**
+### 2. `@WebMvcTest` versus `@SpringBootTest`?
+
+**Answer:** `@WebMvcTest` loads the MVC slice and is focused and fast. `@SpringBootTest` loads the full application context and is useful for wiring and cross-layer behavior. It is not automatically a better unit test.
+
+### 3. When should you mock?
+
+**Answer:** Mock an external or independently tested collaborator when controlling its response isolates the behavior under test. Do not mock the class under test or replace simple value objects with mocks.
+
+### 4. Is 100% coverage a good goal?
+
+**Answer:** No. Coverage is a signal, not proof of quality. Risk, business impact, edge cases, and assertion strength matter more than exercising every trivial line.
+
+### 5. Why use Testcontainers?
+
+**Answer:** It tests against a real dependency and catches database dialect, indexing, constraint, and transaction differences that an in-memory substitute may miss.
+
+### 6. How do you test validation?
+
+**Answer:** Send invalid input through the controller boundary and assert the status and field-level error contract. Also test domain invariants in unit tests when they are not HTTP-specific.
+
+### 7. How do you test security?
+
+**Answer:** Test unauthenticated, authenticated-but-forbidden, and authorized cases, plus ownership or tenant isolation. Use Spring Security test support to construct identities without weakening production configuration.
+
+### 8. Why can interaction tests be brittle?
+
+**Answer:** They assert internal call sequences rather than observable behavior. Refactoring can fail them even when the contract remains correct. Verify interactions only when count or ordering is part of the requirement.
+
+### 9. How do you test asynchronous code?
+
+**Answer:** Inject a controllable executor or awaitility-style condition, assert completion and failure paths, and test timeout and cancellation behavior. Avoid arbitrary sleeps.
+
+### 10. What makes a good test name?
+
+**Answer:** It states the scenario and expected result, such as `createUser_whenEmailExists_returnsConflict`. The name should make a failure understandable without opening the test body.
+
+## Revision Checklist
+
+- [ ] Write unit tests with Arrange-Act-Assert and clear behavior names.
+- [ ] Use Mockito at boundaries without over-verifying implementation.
+- [ ] Choose between `@WebMvcTest`, `@DataJpaTest`, and `@SpringBootTest`.
+- [ ] Test validation, errors, security, and database constraints.
+- [ ] Explain why coverage and the pyramid are heuristics.
+- [ ] Use real infrastructure tests where dialect or integration behavior matters.

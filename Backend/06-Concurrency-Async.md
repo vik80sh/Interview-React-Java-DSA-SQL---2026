@@ -1,533 +1,125 @@
-# Concurrency & Async Processing
-## Threads, Thread Safety, CompletableFuture, Scheduling
+# Concurrency and Asynchronous Processing
 
----
+Concurrency means multiple tasks overlap in execution. Parallelism means tasks execute at the same time on different cores. The hard part is shared mutable state, coordination, resource limits, and failure handling.
 
-## TABLE OF CONTENTS
-1. Thread Basics & Safety
-2. Synchronization & Locks
-3. Async/Non-blocking Code
-4. CompletableFuture
-5. Task Scheduling
-6. Common Interview Questions
-
----
-
-# PART 1: THREAD BASICS
-
-## Understanding Threads
+## 1. Race Conditions and the Memory Model
 
 ```java
-// SINGLE-THREADED (blocking)
-@RestController
-public class ReportController {
-    
-    @GetMapping("/report")
-    public ResponseEntity<Report> getReport() {
-        // This blocks the thread!
-        Report report = expensiveOperation(); // Takes 5 seconds
-        return ResponseEntity.ok(report);
-    }
-    
-    private Report expensiveOperation() {
-        try {
-            Thread.sleep(5000); // Simulate long operation
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        return new Report("data");
-    }
-}
-
-// PROBLEMS:
-// - Each request = 1 thread (limited pool)
-// - Thread waits 5 seconds doing nothing
-// - Can't scale (servlet threads = limited)
-// - Database connections blocked
-
-// ✅ SOLUTION: Use async/non-blocking
-@GetMapping("/report")
-public CompletableFuture<ResponseEntity<Report>> getReportAsync() {
-    return reportService.generateReportAsync()
-        .thenApply(ResponseEntity::ok);
-}
-
-// BENEFITS:
-// - Same thread handles other requests
-// - Better resource utilization
-// - Can scale to more concurrent users
-```
-
----
-
-## Thread Safety Problem
-
-```java
-// ❌ NOT THREAD-SAFE
 class Counter {
-    private int count = 0; // Shared state
-    
-    public void increment() {
-        count++; // Not atomic!
-        // Thread 1: reads count (0), increments, writes (1)
-        // Thread 2: reads count (0), increments, writes (1)
-        // Result: count = 1 (but should be 2!)
-    }
+    private int value;
+    void increment() { value++; }
 }
-
-// What happens:
-// Thread 1: read count=0
-// Thread 2: read count=0
-// Thread 1: write count=1
-// Thread 2: write count=1
-// Final: count=1 (WRONG! Lost update)
-
-// ✅ THREAD-SAFE SOLUTIONS
-
-// Solution 1: Synchronized
-class SafeCounter1 {
-    private int count = 0;
-    
-    public synchronized void increment() {
-        count++; // Only one thread at a time
-    }
-}
-
-// Solution 2: Atomic
-class SafeCounter2 {
-    private AtomicInteger count = new AtomicInteger(0);
-    
-    public void increment() {
-        count.incrementAndGet(); // Atomic operation
-    }
-}
-
-// Solution 3: Volatile (for simple cases)
-class SafeCounter3 {
-    private volatile int count = 0;
-    
-    public void increment() {
-        count++; // Still not thread-safe! Use Atomic instead
-    }
-}
-
-// Solution 4: No shared state (best)
-// Pass data through method parameters, no instance variables
 ```
 
----
-
-# PART 2: SYNCHRONIZATION & LOCKS
-
-## Synchronized Blocks
+`value++` is read, add, write; two threads can interleave and lose an update. `volatile` provides visibility and ordering for a variable, but it does not make a compound read-modify-write atomic. Use immutable state, confinement, a lock, or an atomic type:
 
 ```java
-// ❌ Synchronized entire method (slow)
-class BankAccount {
-    private double balance = 0;
-    
-    public synchronized void deposit(double amount) {
-        balance += amount;
-    }
-    
-    public synchronized double getBalance() {
-        return balance;
-    }
-}
-// Entire method is locked - not efficient
-
-// ✅ Synchronized specific section (better)
-class BankAccount {
-    private double balance = 0;
-    private final Object lock = new Object();
-    
-    public void deposit(double amount) {
-        // Some work outside lock
-        double fee = calculateFee(amount);
-        
-        // Only lock what needs it
-        synchronized(lock) {
-            balance += amount - fee;
-        }
-    }
-}
+private final AtomicInteger value = new AtomicInteger();
+value.incrementAndGet();
 ```
 
----
+The Java Memory Model explains when one thread's writes become visible to another. A happens-before relationship is established by mechanisms such as unlocking then locking the same monitor, completing a future then observing it, or writing a volatile variable then reading it.
 
-## Locks (ReentrantLock)
+## 2. Locks and Deadlocks
+
+Use `synchronized` for simple mutual exclusion. Use `ReentrantLock` when you need timed acquisition, interruptible waits, or fairness. Always unlock in `finally`.
+
+To transfer between two accounts, lock accounts in a deterministic order, such as ascending account ID. Locking `from` then `to` is unsafe because another transfer can lock them in the opposite order:
 
 ```java
-class BankAccount {
-    private double balance = 0;
-    private final ReentrantLock lock = new ReentrantLock();
-    
-    public void deposit(double amount) {
-        lock.lock();
-        try {
-            balance += amount;
-        } finally {
-            lock.unlock(); // Always unlock
-        }
-    }
-    
-    public void transferToOtherAccount(BankAccount other, double amount) {
-        // Lock both accounts to prevent deadlock
-        lock.lock();
-        other.lock.lock();
-        try {
-            this.balance -= amount;
-            other.balance += amount;
-        } finally {
-            other.lock.unlock();
-            lock.unlock();
-        }
-    }
-}
-
-// ReentrantLock advantages:
-// - More control (tryLock, timeout)
-// - Fair locking option
-// - Better than synchronized for complex scenarios
+Account first = a.id() < b.id() ? a : b;
+Account second = first == a ? b : a;
+first.lock().lock();
+try {
+    second.lock().lock();
+    try { transferBalances(a, b, amount); }
+    finally { second.lock().unlock(); }
+} finally { first.lock().unlock(); }
 ```
 
----
+Other deadlock prevention tools include lock timeouts, avoiding nested locks, and reducing lock scope. Database locks and distributed locks have different failure modes; an in-process lock cannot protect data across application instances.
 
-# PART 3: ASYNC/NON-BLOCKING CODE
+## 3. Executors and CompletableFuture
 
-## CompletableFuture
+Do not create an unbounded thread per request. Use a bounded executor with named threads, a queue policy, rejection handling, and graceful shutdown. CPU-bound work is limited by cores; blocking I/O consumes threads while waiting and must also respect downstream connection limits.
+
+`CompletableFuture` composes asynchronous results, but `join()` and blocking calls inside an executor can still consume threads:
 
 ```java
-@Service
-public class ReportService {
-    
-    @Async // Make method run in thread pool
-    public CompletableFuture<Report> generateReportAsync() {
-        // This runs in background thread
-        Report report = expensive Operation();
-        return CompletableFuture.completedFuture(report);
-    }
-    
-    // Chaining async operations
-    @GetMapping("/report")
-    public CompletableFuture<ResponseEntity<Report>> getReport() {
-        return reportService.generateReportAsync()
-            .thenApply(report -> enrich(report))        // Chain operation
-            .thenApply(report -> ResponseEntity.ok(report))
-            .exceptionally(ex -> ResponseEntity.status(500).build());
-    }
-    
-    // Combining multiple async operations
-    public CompletableFuture<Report> combineReports() {
-        CompletableFuture<Report> report1 = generateReport1Async();
-        CompletableFuture<Report> report2 = generateReport2Async();
-        
-        // Wait for both
-        return report1.thenCombine(report2, (r1, r2) -> {
-            return new Report(r1.getData() + r2.getData());
-        });
-    }
-    
-    // Multiple async operations
-    public CompletableFuture<List<String>> fetchFromMultipleSources() {
-        return CompletableFuture.allOf(
-            fetchSource1Async(),
-            fetchSource2Async(),
-            fetchSource3Async()
-        ).thenApply(v -> combineResults());
-    }
-}
+CompletableFuture<User> user = userClient.fetchUser(id);
+CompletableFuture<List<Order>> orders = orderClient.fetchOrders(id);
 
-// Enable async
-@Configuration
-@EnableAsync
-public class AsyncConfig {
-    
-    @Bean(name = "taskExecutor")
-    public Executor taskExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(5);
-        executor.setMaxPoolSize(10);
-        executor.setQueueCapacity(100);
-        executor.setThreadNamePrefix("async-");
-        executor.initialize();
-        return executor;
-    }
-}
+CompletableFuture<Dashboard> dashboard = user.thenCombine(orders,
+    (u, os) -> new Dashboard(u, os))
+    .orTimeout(2, TimeUnit.SECONDS)
+    .exceptionally(ex -> Dashboard.unavailable());
 ```
 
----
+Use `thenApply` for a synchronous transformation and `thenCompose` when the transformation returns another future. `allOf` waits for completion but discards typed results, so collect the original futures afterward. Propagate cancellation and preserve the cause of failures.
 
-# PART 4: REACTIVE (ADVANCED)
+## 4. Spring `@Async`
 
-```java
-// Reactive approach (non-blocking, push-based)
-@RestController
-public class ReportReactiveController {
-    
-    @GetMapping("/report")
-    public Mono<Report> getReportReactive() {
-        return reportService.generateReportMono()
-            .map(this::enrich)
-            .onErrorReturn(new Report("error"));
-    }
-    
-    // Stream multiple values
-    @GetMapping("/reports", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<Report> getReportsStream() {
-        return reportService.generateReportsFlux()
-            .delayElement(Duration.ofSeconds(1));
-    }
-}
+`@Async` submits work through a Spring proxy to a task executor. It is not automatically non-blocking: it moves blocking work to another pool. That pool can still exhaust threads, database connections, or downstream capacity. Configure a named bounded executor and handle exceptions for `void` methods.
 
-// Advantages:
-// - True non-blocking
-// - Backpressure handling
-// - Resource efficient
-// 
-// Disadvantages:
-// - Steeper learning curve
-// - Complex debugging
-// - Requires reactive libraries (Project Reactor, RxJava)
-```
+Self-invocation bypasses the proxy, so `this.generate()` does not activate `@Async`. Put the method in another bean or call through the proxy. Never assume request context, security context, transactions, or MDC automatically transfer to another thread; propagate what the task needs explicitly.
 
----
+## 5. Reactive and Scheduling Choices
 
-# PART 5: TASK SCHEDULING
+Reactive programming can provide non-blocking I/O and backpressure when the entire stack is reactive. Wrapping blocking JDBC or `Thread.sleep` in `Mono` does not make it non-blocking; isolate blocking work on a suitable scheduler or use a reactive driver.
 
-## Scheduled Tasks
+`@Scheduled` runs on each application instance by default. A daily job can therefore run three times in a three-instance deployment. Use a distributed scheduler, a database lock library, or an idempotent job design when only one execution is allowed. `fixedRate` measures from scheduled start times; `fixedDelay` waits after completion.
 
-```java
-@Configuration
-@EnableScheduling
-public class SchedulingConfig {
-}
+## 6. Virtual Threads and Backpressure
 
-@Component
-public class ScheduledTasks {
-    
-    @Scheduled(fixedRate = 5000) // Every 5 seconds
-    public void taskFixedRate() {
-        System.out.println("Running every 5 seconds");
-    }
-    
-    @Scheduled(fixedDelay = 5000) // 5 seconds after last execution ends
-    public void taskFixedDelay() {
-        System.out.println("5 seconds after last execution");
-    }
-    
-    @Scheduled(cron = "0 0 12 * * ?") // Daily at noon
-    public void taskCron() {
-        System.out.println("Running at noon");
-    }
-    
-    @Scheduled(cron = "0 */15 * * * ?") // Every 15 minutes
-    public void quarterlyTask() {
-        System.out.println("Every 15 minutes");
-    }
-    
-    @Async
-    @Scheduled(fixedRate = 5000)
-    public void asyncScheduledTask() {
-        // Runs in separate thread
-    }
-}
+Virtual threads reduce the cost of blocking thread-per-task code, but they do not make CPU infinite or remove database and remote-service limits. Use semaphores, bounded queues, client timeouts, rate limits, and bulkheads to protect scarce resources. Every async boundary needs a timeout and an overload policy.
 
-// CRON EXPRESSION: second minute hour day month day-of-week
-// 0 0 12 * * ? = 12:00:00 daily
-// 0 */15 * * * ? = Every 15 minutes
-// 0 0 0 1 * ? = 1st of month
+## Interview Questions and Answers
 
-// fixedRate vs fixedDelay:
-// fixedRate: Starts next at fixed interval (regardless of duration)
-// fixedDelay: Waits fixed delay after completion
-```
+### 1. Why is `volatile` insufficient for `count++`?
 
----
+**Answer:** Volatile makes reads and writes visible but does not combine the read, increment, and write into one atomic operation. Use `AtomicInteger`, a lock, or eliminate shared mutation.
 
-# PART 6: INTERVIEW QUESTIONS
+### 2. How do you prevent deadlock?
 
-## Question 1: Synchronous vs Asynchronous
+**Answer:** Acquire multiple locks in a global deterministic order, use timed or interruptible lock acquisition, avoid unnecessary nested locks, and keep critical sections small.
 
-**Answer:**
-```
-SYNCHRONOUS (Blocking):
-- Thread waits for operation to complete
-- Request blocked until response
-- Simple to understand
-- Limited scalability
-- Traditional servlet apps
+### 3. What does `@Async` actually do?
 
-ASYNCHRONOUS (Non-blocking):
-- Thread continues to other work
-- Operation happens in background
-- Callback/Promise when done
-- Better scalability
-- Modern microservices
+**Answer:** A Spring proxy submits the method to a configured executor. The caller can receive a future immediately, but the work is still bounded by executor and downstream resources. Self-invocation bypasses the proxy.
 
-Example:
-// Sync
-var result = getUserFromDatabase(); // Waits here
-console.log(result);
+### 4. `thenApply` versus `thenCompose`?
 
-// Async
-getUserFromDatabase().then(result => {
-    console.log(result);
-});
-```
+**Answer:** `thenApply` maps a value to another value. `thenCompose` flattens a function that returns a `CompletableFuture`, preventing nested futures.
 
----
+### 5. How should a thread pool be sized?
 
-## Question 2: Thread-safety - How to ensure it?
+**Answer:** Start with workload measurements. CPU-bound work is near available cores; blocking work may use more threads, but database connections, queue length, latency, memory, and downstream limits cap useful concurrency. Formulas are starting heuristics, not guarantees.
 
-**Answer:**
-```
-1. Immutability (best)
-   - Make objects immutable
-   - No shared mutable state
-   - Thread-safe by design
+### 6. How do you handle async failures?
 
-2. Atomic operations
-   - Use AtomicInteger, AtomicReference
-   - Provides atomic updates
+**Answer:** Return a future and compose error handling, set timeouts, preserve causes, propagate cancellation, and define a fallback only when it is semantically safe. Log failures with task context.
 
-3. Synchronization
-   - synchronized keyword
-   - ReentrantLock
-   - Coarse-grained locking (slower)
+### 7. Is reactive code always faster?
 
-4. ThreadLocal
-   - Each thread gets own instance
-   - Good for thread-local context
+**Answer:** No. It can improve resource use for high-concurrency non-blocking I/O, but adds complexity and does not help CPU saturation or blocking calls. Measure the workload.
 
-5. Avoid shared state
-   - Use local variables
-   - Pass data through parameters
-   - Best practice!
+### 8. Why can scheduled jobs duplicate?
 
-6. Collections.synchronizedList()
-   - Thread-safe collections
-   - ConcurrentHashMap (better than synchronized)
-```
+**Answer:** Each application instance runs its own scheduler. In a cluster, use distributed coordination or make the job idempotent so duplicate execution is harmless.
 
----
+### 9. What is backpressure?
 
-## Question 3: @Async - How does it work?
+**Answer:** It is a way for a consumer to communicate capacity limits so producers do not overwhelm it. Queues, bounded executors, rate limits, and reactive demand are different forms of overload control.
 
-**Answer:**
-```
-1. Method marked with @Async
-2. Spring creates proxy that intercepts calls
-3. Proxy submits method to thread pool (TaskExecutor)
-4. Method runs in separate thread
-5. Main thread continues immediately
+### 10. What does happens-before mean?
 
-Example:
-@Async
-public CompletableFuture<Report> generateReport() {
-    return CompletableFuture.completedFuture(report);
-}
+**Answer:** It is a visibility and ordering guarantee: if action A happens-before action B, B must observe A's effects according to the memory model. Synchronization, volatile access, thread start, and future completion can establish it.
 
-// Caller
-public void getReport() {
-    CompletableFuture<Report> future = generateReport();
-    // Continues immediately, doesn't wait
-    
-    // Later:
-    Report report = future.get(); // Block if needed
-}
+## Revision Checklist
 
-Limitations:
-- Only works on @Component methods
-- Can't call from same class (proxy issue)
-- Returns CompletableFuture or void only
-```
-
----
-
-## Question 4: How to prevent deadlock?
-
-**Answer:**
-```
-DEADLOCK: Two threads waiting for each other's locks
-
-Example:
-Thread 1: Locks A, wants B
-Thread 2: Locks B, wants A
-DEADLOCK!
-
-Prevention:
-1. Acquire locks in same order
-   Thread 1: Lock A then B
-   Thread 2: Lock A then B
-   
-2. Use timeout
-   lock.tryLock(1, TimeUnit.SECONDS)
-   
-3. Avoid nested locks
-   
-4. Use ReentrantLock (more control)
-   
-5. Use lock-free data structures
-   AtomicReference, ConcurrentHashMap
-```
-
----
-
-## Question 5: Thread pool size - How to choose?
-
-**Answer:**
-```
-CPU-BOUND TASKS (calculations, logic):
-- Pool size = Number of CPU cores
-- Example: 4-core CPU = 4-8 threads
-
-I/O-BOUND TASKS (database, API calls):
-- Pool size = Larger (many waiting for I/O)
-- Example: 4-core CPU = 20-100 threads
-
-Formula:
-threads = cores * (1 + wait_time / compute_time)
-threads = cores * (1 + IO_time / processing_time)
-
-Spring configuration:
-ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-executor.setCorePoolSize(5);      // Minimum
-executor.setMaxPoolSize(20);      // Maximum
-executor.setQueueCapacity(100);   // Queue size
-executor.initialize();
-
-Queue strategies:
-- Unbounded queue: Accepts all, memory risk
-- Bounded queue: Rejects if full
-- SynchronousQueue: Direct handoff
-```
-
----
-
-# SUMMARY: Concurrency Mastery
-
-✅ **Thread Safety:**
-- [ ] Understand race conditions
-- [ ] Know AtomicInteger/AtomicReference
-- [ ] Know synchronized vs ReentrantLock
-- [ ] Know immutability benefits
-
-✅ **Async:**
-- [ ] Know @Async annotation
-- [ ] Know CompletableFuture (thenApply, thenCombine)
-- [ ] Know when to use async
-
-✅ **Scheduling:**
-- [ ] Know @Scheduled
-- [ ] Know fixedRate vs fixedDelay
-- [ ] Know cron expressions
-
-✅ **Performance:**
-- [ ] Know thread pool sizing
-- [ ] Know ThreadPoolTaskExecutor
-- [ ] Know when to use what
-
----
-
-**Master concurrency—it's 10% of backend interviews!**
+- [ ] Explain race conditions, atomicity, visibility, and happens-before.
+- [ ] Fix a deadlock by deterministic lock ordering.
+- [ ] Compose futures with transformations, timeouts, and error handling.
+- [ ] Configure `@Async` with a bounded executor and understand proxy limits.
+- [ ] Explain scheduling in a multi-instance deployment.
+- [ ] Choose between synchronous, async, reactive, and virtual-thread approaches using resource limits.

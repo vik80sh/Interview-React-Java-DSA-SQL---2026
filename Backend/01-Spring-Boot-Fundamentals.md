@@ -1,1019 +1,224 @@
 # Spring Boot Fundamentals
-## Complete Interview Guide with Real Examples
 
----
+Spring Boot is a way to build Spring applications with sensible defaults, auto-configuration, embedded servers, and production tooling. The important interview skill is not memorizing annotations; it is explaining what happens from application startup to an HTTP response.
 
-## TABLE OF CONTENTS
-1. Spring Boot Basics & Setup
-2. Dependency Injection & Inversion of Control
-3. Common Annotations
-4. Application Properties & Configuration
-5. Spring Boot Starters
-6. Common Interview Questions
+## 1. The Mental Model
 
----
+Spring manages objects called **beans**. A bean is an object whose creation and lifecycle are controlled by the Spring IoC container.
 
-# PART 1: SPRING BOOT BASICS
+- **IoC** is the principle: application code does not control every object creation decision.
+- **DI** is the technique: dependencies are supplied to a class from outside.
+- **Spring Boot** configures a Spring application quickly using auto-configuration and starters.
 
-## What is Spring Boot?
-
-```
-Spring Framework: Low-level framework, requires lots of XML config
-Spring Boot: Opinionated, auto-configured version of Spring
-
-BENEFITS:
-- Auto-configuration (no XML)
-- Embedded servers (Tomcat built-in)
-- Starter dependencies (simplified pom.xml)
-- Production-ready (metrics, health checks)
-- Convention over configuration
-```
-
----
-
-## Spring Boot Project Structure
-
-```
-my-app/
-├── src/
-│   ├── main/
-│   │   ├── java/
-│   │   │   └── com/example/myapp/
-│   │   │       ├── MyAppApplication.java (entry point)
-│   │   │       ├── controller/
-│   │   │       │   └── UserController.java
-│   │   │       ├── service/
-│   │   │       │   └── UserService.java
-│   │   │       ├── repository/
-│   │   │       │   └── UserRepository.java
-│   │   │       ├── entity/
-│   │   │       │   └── User.java
-│   │   │       ├── exception/
-│   │   │       │   └── UserNotFoundException.java
-│   │   │       └── config/
-│   │   │           └── AppConfig.java
-│   │   └── resources/
-│   │       ├── application.properties
-│   │       └── application-prod.properties
-│   └── test/
-│       └── java/com/example/myapp/...
-└── pom.xml (Maven dependencies)
-```
-
----
-
-## Minimal Spring Boot App
+Without DI, a class chooses a concrete dependency:
 
 ```java
-// pom.xml
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-web</artifactId>
-</dependency>
-
-// MyAppApplication.java (Entry point)
-@SpringBootApplication
-public class MyAppApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(MyAppApplication.class, args);
-    }
+class UserService {
+    private final UserRepository repository = new JpaUserRepository();
 }
-
-// UserController.java
-@RestController
-@RequestMapping("/api/users")
-public class UserController {
-    
-    @Autowired
-    private UserService userService;
-    
-    @GetMapping("/{id}")
-    public User getUser(@PathVariable Long id) {
-        return userService.getUserById(id);
-    }
-}
-
-// That's it! Server runs on port 8080 automatically
 ```
 
----
-
-# PART 2: DEPENDENCY INJECTION & IOC
-
-## What is Inversion of Control (IoC)?
+This is difficult to replace in a test and couples business logic to one implementation. With constructor injection:
 
 ```java
-// ❌ TRADITIONAL: You create objects
-class UserController {
-    private UserService userService;
-    
-    public UserController() {
-        userService = new UserService(); // I create it
-    }
-}
-
-// ✅ IoC: Spring creates objects
-class UserController {
-    private UserService userService;
-    
-    @Autowired
-    public UserController(UserService userService) {
-        this.userService = userService; // Spring provides it
-    }
-}
-
-// BENEFITS:
-// - Loose coupling
-// - Easy to test (inject mocks)
-// - Centralized object management
-// - Spring handles object lifecycle
-
-```
-
-## Complete Flow
-
-```text
-Application Starts
-        │
-        ▼
-Component Scan
-        │
-        ▼
-Find @Service
-        │
-        ▼
-Create UserService Bean
-        │
-        ▼
-Find @RestController
-        │
-        ▼
-See constructor(UserService)
-        │
-        ▼
-Fetch UserService Bean
-        │
-        ▼
-Create UserController(UserService)
-        │
-        ▼
-Store both beans in IoC Container
-```
-
----
-
-## Where is IoC here?
-
-Notice that **you never write**:
-
-```java
-UserService service = new UserService();
-
-UserController controller = new UserController(service);
-```
-
-Instead, **Spring writes (internally)**:
-
-```java
-UserService service = new UserService();
-
-UserController controller = new UserController(service);
-```
-
-That is **Inversion of Control**.
-
-The control of object creation has moved from your application code to the **Spring IoC Container**.
-
----
-
-## Interview Answer
-
-If the interviewer asks:
-
-> **"Nowadays we don't use `@Autowired`. How does dependency injection still work?"**
-
-You can answer:
-
-> "Starting with Spring 4.3, if a bean has only one constructor, Spring automatically treats it as the injection constructor, so `@Autowired` is optional. In most modern projects, we use Lombok's `@RequiredArgsConstructor`, which generates that constructor. During application startup, the Spring IoC container scans for beans, creates them, resolves constructor dependencies, and injects them automatically. The IoC container—not Lombok or `@Autowired`—is responsible for creating and wiring the objects."
-
-
-# Spring IoC & Dependency Injection – Interview Notes
-
----
-
-# 1. What is IoC (Inversion of Control)?
-
-**Definition:**
-
-> **Inversion of Control (IoC)** is a design principle where the **Spring IoC Container** creates, manages, and injects objects (beans) instead of the application creating them using `new`.
-
-### Without IoC
-
-```java
-UserService service = new UserService();
-UserController controller = new UserController(service);
-```
-
-Here, the application controls object creation.
-
-### With IoC
-
-```java
-@Service
-class UserService {}
-
-@RestController
-@RequiredArgsConstructor
-class UserController {
-    private final UserService userService;
-}
-```
-
-Spring automatically:
-
-1. Creates `UserService` Object
-2. Creates `UserController` Object
-3. Injects `UserService` into `UserController`
-
-**Control of object creation is transferred from the application to the Spring Container.**
-
----
-
-# 2. What is Dependency Injection (DI)?
-
-**Definition:**
-
-> Dependency Injection is the process by which the Spring IoC Container provides required dependencies to a class instead of the class creating them itself.
-
-Example:
-
-```java
-@RequiredArgsConstructor
-@RestController
-public class UserController {
-
-    private final UserService userService;
-}
-```
-
-Spring injects `UserService` automatically.
-
-**IoC is the principle.**
-
-**Dependency Injection is one way Spring implements IoC.**
-
----
-
-# 3. IoC vs Dependency Injection
-
-| IoC                             | Dependency Injection                    |
-| ------------------------------- | --------------------------------------- |
-| Design Principle                | Implementation Technique                |
-| Spring controls object creation | Spring injects dependencies             |
-| Implemented using DI            | Constructor, Setter, or Field Injection |
-
----
-
-# 4. Dependency Injection Methods
-
-## A. Constructor Injection ✅ (Recommended)
-
-```java
-@RestController
-@RequiredArgsConstructor
-public class UserController {
-
-    private final UserService userService;
-}
-```
-
-Lombok generates:
-
-```java
-public UserController(UserService userService) {
-    this.userService = userService;
-}
-```
-
-### Advantages
-
-* ✅ Recommended by Spring
-* ✅ Supports `final` fields
-* ✅ Easy to test
-* ✅ Dependencies are explicit
-* ✅ Prevents NullPointerException
-* ✅ Immutable dependencies
-
----
-
-## B. Setter Injection
-
-```java
-@RestController
-public class UserController {
-
-    private UserService userService;
-
-    @Autowired
-    public void setUserService(UserService userService) {
-        this.userService = userService;
-    }
-}
-```
-
-### Advantages
-
-* Good for optional dependencies
-* Dependency can be changed later
-
-### Disadvantages
-
-* Can be `null`
-* Object can exist in an incomplete state
-* Less suitable for required dependencies
-
----
-
-## C. Field Injection ❌
-
-```java
-@RestController
-public class UserController {
-
-    @Autowired
-    private UserService userService;
-}
-```
-
-### Disadvantages
-
-* Hard to unit test
-* Uses reflection
-* Hidden dependencies
-* Cannot use `final`
-* Not recommended in modern Spring applications
-
----
-
-# 5. Why Constructor Injection is Best
-
-* Dependencies are mandatory
-* Supports immutable (`final`) fields
-* Easy unit testing
-* Clear and explicit dependencies
-* Recommended by Spring
-
----
-
-# 6. Why We Don't Use `@Autowired` Nowadays
-
-Since **Spring 4.3**, if a class has **only one constructor**, Spring automatically uses it for dependency injection.
-
-Example:
-
-```java
-@RestController
-public class UserController {
-
-    private final UserService userService;
-
-    public UserController(UserService userService) {
-        this.userService = userService;
-    }
-}
-```
-
-No `@Autowired` needed.
-
-With Lombok:
-
-```java
-@RequiredArgsConstructor
-@RestController
-public class UserController {
-
-    private final UserService userService;
-}
-```
-
-Lombok generates the constructor, and Spring injects the dependency automatically.
-
-> **Lombok only generates constructors. Spring performs Dependency Injection.**
-
----
-
-# 7. Spring Bean Lifecycle
-
-```
-Application Starts
-        │
-        ▼
-Component Scan
-        │
-        ▼
-Bean Instantiation
-(new Object())
-        │
-        ▼
-Dependency Injection
-(Constructor/Setter/Field)
-        │
-        ▼
-@PostConstruct
-        │
-        ▼
-Bean Ready
-        │
-        ▼
-Application Running
-        │
-        ▼
-Application Stops
-        │
-        ▼
-@PreDestroy
-        │
-        ▼
-Bean Destroyed
-```
-
----
-
-# 8. `@PostConstruct`
-
-Runs **after dependency injection**.
-
-Used for:
-
-* Cache initialization
-* Loading configuration
-* Opening resources
-* Validation
-
-```java
-@PostConstruct
-public void init() {
-    System.out.println("Bean initialized");
-}
-```
-
----
-
-# 9. `@PreDestroy`
-
-Runs **before bean destruction**.
-
-Used for:
-
-* Closing database connections
-* Closing files
-* Releasing resources
-* Stopping background threads
-
-```java
-@PreDestroy
-public void cleanup() {
-    System.out.println("Bean destroyed");
-}
-```
-
----
-
-# 10. Interview Summary (30 Seconds)
-
-> **IoC (Inversion of Control)** means Spring manages object creation and lifecycle instead of the application creating objects with `new`. **Dependency Injection** is the mechanism Spring uses to provide required dependencies to those objects. Spring supports constructor, setter, and field injection, but **constructor injection is the recommended approach** because it supports immutable (`final`) fields, makes dependencies explicit, and is easier to unit test. In modern Spring Boot, `@Autowired` is optional for a class with a single constructor, and Lombok's `@RequiredArgsConstructor` is commonly used to generate that constructor automatically.
-
-
----
-
-## Dependency Injection Methods
-
-### Method 1: Constructor Injection (Recommended)
-
-```java
-@RestController
-public class UserController {
-    private final UserService userService;
-    private final UserRepository userRepository;
-    
-    // Constructor injection - BEST PRACTICE
-    public UserController(UserService userService, UserRepository userRepository) {
-        this.userService = userService;
-        this.userRepository = userRepository;
-    }
-    
-    @GetMapping("/{id}")
-    public User getUser(@PathVariable Long id) {
-        return userService.getUserById(id);
-    }
-}
-
-// ADVANTAGES:
-// - Immutability (final fields)
-// - Clear dependencies
-// - Easy to test
-// - Never null
-```
-
----
-
-### Method 2: Setter Injection
-
-```java
-@RestController
-public class UserController {
-    private UserService userService;
-    
-    @Autowired
-    public void setUserService(UserService userService) {
-        this.userService = userService;
-    }
-}
-
-// DISADVANTAGES:
-// - Can be null
-// - Dependencies not obvious
-// - Hard to test
-// - Avoid this!
-```
-
----
-
-### Method 3: Field Injection
-
-```java
-@RestController
-public class UserController {
-    @Autowired
-    private UserService userService; // Direct injection
-}
-
-// DISADVANTAGES:
-// - Can be null
-// - Hard to test (need reflection)
-// - Spring magic (not obvious)
-// - Avoid this too!
-
-// WHEN TESTING:
-// ❌ Can't easily inject mocks
-@Test
-public void testGetUser() {
-    UserController controller = new UserController();
-    // userService is null! Can't test!
-}
-
-// ✅ With constructor injection:
-@Test
-public void testGetUser() {
-    UserService mockService = mock(UserService.class);
-    UserController controller = new UserController(mockService);
-    // Easy to test!
-}
-```
-
----
-
-## Spring Bean Lifecycle
-
-```java
-// 1. INSTANTIATION - Spring creates object
-// 2. POPULATE PROPERTIES - DI happens
-// 3. INITIALIZATION - @PostConstruct methods
-// 4. READY - Bean available
-// 5. DESTRUCTION - @PreDestroy methods
-
-@Component
-public class MyBean {
-    
-    @PostConstruct
-    public void init() {
-        System.out.println("Bean initialized");
-        // Good for: Database connections, cache initialization
-    }
-    
-    @PreDestroy
-    public void cleanup() {
-        System.out.println("Bean destroyed");
-        // Good for: Closing connections, cleanup
-    }
-}
-```
-
----
-
-# PART 3: COMMON ANNOTATIONS
-
-## Stereotypes (Component Types)
-
-```java
-// @Component: Generic component
-@Component
-public class MyComponent {
-}
-
-// @Service: Business logic
 @Service
 public class UserService {
-    // Usually contains business logic
+    private final UserRepository repository;
+
+    public UserService(UserRepository repository) {
+        this.repository = repository;
+    }
 }
-
-// @Repository: Data access
-@Repository
-public class UserRepository {
-    // Database operations
-}
-
-// @Controller: Request handling (returns HTML)
-@Controller
-public class UserController {
-}
-
-// @RestController: Request handling (returns JSON)
-@RestController
-public class UserRestController {
-}
-
-// DIFFERENCE:
-// @Controller returns view name (HTML)
-// @RestController returns data (JSON)
-
-// Under the hood:
-// @RestController = @Controller + @ResponseBody
 ```
 
----
+The class declares what it needs. Spring chooses and supplies the implementation.
 
-## Request Mapping Annotations
+### Constructor, setter, and field injection
+
+Use constructor injection for required dependencies. It makes invalid object states harder to create and makes unit tests simple:
 
 ```java
+UserService service = new UserService(fakeRepository);
+```
+
+Setter injection is reasonable for an optional dependency. Field injection hides dependencies, prevents `final` fields, and makes plain unit testing awkward, so avoid it in new code.
+
+`@Autowired` is optional when a class has one constructor. Lombok's `@RequiredArgsConstructor` can generate that constructor, but Lombok does not perform injection; Spring does.
+
+## 2. What Happens at Startup?
+
+For a typical application:
+
+1. `SpringApplication.run` creates an application context.
+2. Component scanning finds classes such as `@Service` and `@RestController`.
+3. Auto-configuration adds beans when required classes and properties are present.
+4. Spring creates beans, resolves constructor dependencies, and applies post-processors.
+5. Proxies may be created for features such as transactions, caching, or security.
+6. The embedded server starts and the application accepts requests.
+
+The request path is usually:
+
+```text
+HTTP request
+  -> servlet filters/security
+  -> DispatcherServlet
+  -> controller
+  -> service
+  -> repository/database
+  -> response serialization
+```
+
+`@SpringBootApplication` combines `@Configuration`, `@EnableAutoConfiguration`, and `@ComponentScan`. Keep the main class in a package above the application packages, or configure scanning explicitly.
+
+## 3. A Small Layered Example
+
+```java
+public record UserResponse(Long id, String name, String email) {}
+
+public interface UserRepository extends JpaRepository<User, Long> {}
+
+@Service
+public class UserService {
+    private final UserRepository repository;
+
+    public UserService(UserRepository repository) {
+        this.repository = repository;
+    }
+
+    @Transactional(readOnly = true)
+    public UserResponse findById(Long id) {
+        User user = repository.findById(id)
+            .orElseThrow(() -> new UserNotFoundException(id));
+        return new UserResponse(user.getId(), user.getName(), user.getEmail());
+    }
+}
+
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
-    
-    // GET /api/users
-    @GetMapping
-    public List<User> getAllUsers() { }
-    
-    // GET /api/users/1
-    @GetMapping("/{id}")
-    public User getUser(@PathVariable Long id) { }
-    
-    // POST /api/users
-    @PostMapping
-    public User createUser(@RequestBody User user) { }
-    
-    // PUT /api/users/1
-    @PutMapping("/{id}")
-    public User updateUser(@PathVariable Long id, @RequestBody User user) { }
-    
-    // DELETE /api/users/1
-    @DeleteMapping("/{id}")
-    public void deleteUser(@PathVariable Long id) { }
-    
-    // Custom path: GET /api/users/search?q=john
-    @GetMapping("/search")
-    public List<User> search(@RequestParam String q) { }
-}
+    private final UserService service;
 
-// PARAMETER ANNOTATIONS:
-// @PathVariable - From URL path (/users/{id})
-// @RequestParam - From query string (?name=value)
-// @RequestBody - From request body (JSON)
-// @RequestHeader - From HTTP headers
+    public UserController(UserService service) {
+        this.service = service;
+    }
+
+    @GetMapping("/{id}")
+    public UserResponse findById(@PathVariable Long id) {
+        return service.findById(id);
+    }
+}
 ```
 
----
+The controller handles HTTP concerns, the service owns business decisions and transaction boundaries, and the repository handles persistence. Returning a DTO instead of an entity prevents database structure and internal fields from becoming an accidental API contract.
 
-## Other Important Annotations
+## 4. Stereotypes and Configuration
+
+`@Component` is a generic scanned bean. `@Service` communicates business logic. `@Repository` communicates data access and enables Spring's persistence exception translation for applicable classes. `@RestController` is effectively `@Controller` plus `@ResponseBody`.
+
+Use `@Bean` when an object comes from a library or needs explicit construction:
 
 ```java
-// CONFIGURATION
 @Configuration
 public class AppConfig {
-    // Bean definitions
-}
-
-// CONDITIONAL BEAN CREATION
-@ConditionalOnProperty(name = "feature.enabled", havingValue = "true")
-@Component
-public class FeatureComponent { }
-
-// SCHEDULING
-@Scheduled(fixedRate = 5000) // Every 5 seconds
-public void doSomething() { }
-
-// ASPECT (Logging, Caching)
-@Aspect
-@Component
-public class LoggingAspect {
-    @Around("execution(* com.example.service.*.*(..))")
-    public Object logExecution(ProceedingJoinPoint joinPoint) throws Throwable {
-        System.out.println("Before: " + joinPoint.getSignature());
-        Object result = joinPoint.proceed();
-        System.out.println("After: " + result);
-        return result;
+    @Bean
+    public Clock applicationClock() {
+        return Clock.systemUTC();
     }
 }
-
-// VALIDATION
-@NotNull
-@NotEmpty
-@Min(1)
-@Max(100)
-@Email
-@Pattern(regexp = "...")
-private String field;
-
-// CACHING
-@Cacheable("users")
-public User getUserById(Long id) { }
-
-@CacheEvict("users")
-public void deleteUser(Long id) { }
 ```
 
----
+Use component scanning for application-owned classes and `@Bean` for explicit configuration. If two beans implement the same interface, use `@Primary` or `@Qualifier` rather than relying on accidental selection.
 
-# PART 4: APPLICATION PROPERTIES
+### Bean scopes and proxies
 
-## application.properties Configuration
+Singleton is the default scope: one bean instance per application context. A singleton must be thread-safe because many request threads can use it. Prototype creates a new instance when requested, but Spring does not manage the full lifecycle of a prototype after creation. Web scopes such as request scope are tied to an HTTP request.
 
-```properties
-# Server Configuration
-server.port=8080
-server.servlet.context-path=/api
+Annotations such as `@Transactional`, `@Cacheable`, and `@Async` generally work through a proxy. A call from one bean to another passes through the proxy; a self-invocation such as `this.asyncMethod()` does not, so the annotation may not take effect.
 
-# Spring Boot Auto-configuration
-spring.application.name=my-app
-spring.profiles.active=dev
+## 5. Auto-Configuration and Starters
 
-# Database Configuration
-spring.datasource.url=jdbc:mysql://localhost:3306/mydb
-spring.datasource.username=root
-spring.datasource.password=password
-spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+A starter is a curated dependency set. For example, `spring-boot-starter-web` brings Spring MVC, JSON support, validation integration, and an embedded server. Auto-configuration then creates suitable beans based on the classpath and properties.
 
-# JPA/Hibernate Configuration
-spring.jpa.hibernate.ddl-auto=update
-spring.jpa.show-sql=true
-spring.jpa.properties.hibernate.format_sql=true
-spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect
+Auto-configuration is conditional, not magic. Conditions commonly check whether a class exists, a property has a value, or a bean is missing. To debug an unexpected configuration, run with the condition evaluation report enabled or inspect the startup logs. Do not disable auto-configuration blindly; identify the condition that produced the bean.
 
-# Logging Configuration
-logging.level.root=INFO
-logging.level.com.example=DEBUG
-logging.file.name=logs/app.log
-
-# Connection Pool
-spring.datasource.hikari.maximum-pool-size=10
-spring.datasource.hikari.minimum-idle=5
-spring.datasource.hikari.connection-timeout=20000
-```
-
----
-
-## Environment-Specific Configuration
+## 6. Externalized Configuration
 
 ```properties
-# application-dev.properties
+spring.application.name=interview-api
 server.port=8080
-spring.datasource.url=jdbc:mysql://localhost:3306/mydb_dev
-logging.level.root=DEBUG
-
-# application-prod.properties
-server.port=80
-spring.datasource.url=jdbc:mysql://prod-db:3306/mydb
-logging.level.root=WARN
 spring.jpa.hibernate.ddl-auto=validate
-
-# application-test.properties
-spring.datasource.url=jdbc:h2:mem:testdb
-spring.h2.console.enabled=true
-spring.jpa.hibernate.ddl-auto=create-drop
+app.feature.audit-enabled=true
 ```
 
----
+Use environment variables or a secret manager for credentials. Do not commit passwords or signing keys. `ddl-auto=update` can be convenient locally but should not replace reviewed migrations in production. Prefer `validate` with Flyway or Liquibase.
 
-## Accessing Properties in Code
+For grouped, typed settings:
 
 ```java
-@Component
-public class AppProperties {
-    
-    // Method 1: @Value annotation
-    @Value("${server.port}")
-    private int serverPort;
-    
-    // Method 2: @Value with default
-    @Value("${app.name:DefaultName}")
-    private String appName;
-    
-    // Method 3: Environment object
-    @Autowired
-    private Environment env;
-    
-    public void print() {
-        String dbUrl = env.getProperty("spring.datasource.url");
-        System.out.println(dbUrl);
-    }
-    
-    // Method 4: Configuration Properties (Best)
-    @Configuration
-    @ConfigurationProperties(prefix = "app")
-    public static class AppConfig {
-        private String name;
-        private String version;
-        
-        // getters/setters
-    }
-}
-
-// In application.properties:
-// app.name=MyApp
-// app.version=1.0.0
+@ConfigurationProperties(prefix = "app.feature")
+@Validated
+public record FeatureProperties(@NotNull Boolean auditEnabled) {}
 ```
 
----
+Register it with `@ConfigurationPropertiesScan` or `@EnableConfigurationProperties(FeatureProperties.class)`. Use `@Value` for a small isolated value; use configuration properties for a related group.
 
-# PART 5: SPRING BOOT STARTERS
+Profiles select environment-specific configuration, but they are not a secret-management system. Prefer `application-dev.yml`, `application-test.yml`, and deployment-provided environment variables with an explicit active profile.
 
-## Common Starters
+## 7. Lifecycle and Transactions
 
-```xml
-<!-- Web Application -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-web</artifactId>
-</dependency>
+The simplified lifecycle is instantiation, dependency injection, initialization, ready state, and destruction. `@PostConstruct` is useful for validation or small initialization tasks. `@PreDestroy` is useful for releasing resources. Avoid long network calls during startup unless startup should genuinely fail when that dependency is unavailable.
 
-<!-- Database Access -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-data-jpa</artifactId>
-</dependency>
+`@Transactional` is normally placed on a public service method. Spring opens or joins a transaction through a proxy. By default, unchecked exceptions cause rollback; checked exceptions do not unless configured with `rollbackFor`. A transaction is a database boundary, not a general distributed transaction: sending an email inside it does not roll back the email if the database later fails.
 
-<!-- MySQL Driver -->
-<dependency>
-    <groupId>com.mysql</groupId>
-    <artifactId>mysql-connector-java</artifactId>
-    <version>8.0.33</version>
-</dependency>
+## Interview Questions and Answers
 
-<!-- Security -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-security</artifactId>
-</dependency>
+### 1. What is the difference between IoC and DI?
 
-<!-- Validation -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-validation</artifactId>
-</dependency>
+**Answer:** IoC is the principle that control of object creation and lifecycle is moved to a container. Dependency injection is the mechanism that supplies an object's dependencies from outside. Spring uses DI to implement IoC.
 
-<!-- Testing -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-test</artifactId>
-    <scope>test</scope>
-</dependency>
+**Follow-up:** Why is constructor injection preferred? It makes required dependencies explicit, supports immutable fields, prevents partially initialized objects, and makes unit tests easy.
 
-<!-- Lombok (Reduce boilerplate) -->
-<dependency>
-    <groupId>org.projectlombok</groupId>
-    <artifactId>lombok</artifactId>
-    <optional>true</optional>
-</dependency>
-```
+### 2. How does Spring find and create a bean?
 
----
+**Answer:** Component scanning finds stereotype-annotated classes, configuration classes declare explicit `@Bean` methods, and auto-configuration contributes conditional beans. Spring creates the beans, resolves constructor dependencies, applies post-processors or proxies, and stores them in the application context.
 
-# PART 6: INTERVIEW QUESTIONS
+### 3. `@Component`, `@Service`, and `@Repository`?
 
-## Question 1: Explain Dependency Injection
+**Answer:** All are component stereotypes, but they communicate intent. `@Service` marks business logic. `@Repository` marks persistence code and can translate persistence exceptions into Spring's data-access hierarchy. `@Component` is the generic option.
 
-**Answer:**
-```
-Dependency Injection is a design pattern where objects receive their dependencies 
-from an external source (Spring container) rather than creating them themselves.
+### 4. What is the difference between `@Bean` and component scanning?
 
-Benefits:
-1. Loose coupling - Easy to swap implementations
-2. Testability - Inject mocks for testing
-3. Reusability - Same object used everywhere
-4. Centralized management - Spring handles lifecycle
+**Answer:** Component scanning discovers application classes automatically. `@Bean` explicitly creates an object in a configuration class, which is useful for third-party classes or construction that needs parameters.
 
-Spring uses IoC (Inversion of Control) container to manage object creation and injection.
-```
+### 5. Why might `@Transactional` appear not to work?
 
----
+**Answer:** The call may bypass the Spring proxy, such as self-invocation or calling a method on an object created with `new`. It may also be placed on a non-public method or the exception may not trigger rollback under the default rules. Put the transaction boundary on a public service method called through another bean and verify the actual database behavior.
 
-## Question 2: @Autowired vs Constructor Injection
+### 6. What is Spring Boot auto-configuration?
 
-**Answer:**
-```
-CONSTRUCTOR INJECTION (PREFERRED):
-✅ Immutability (final fields)
-✅ Clear dependencies (visible in constructor)
-✅ Easy to test (pass objects in constructor)
-✅ Never null
-✅ Works with @SpringBootTest
+**Answer:** It is conditional configuration activated by the classpath, existing beans, and properties. For example, adding a web starter allows Boot to configure MVC and an embedded server. It provides defaults while still allowing explicit application beans to override them.
 
-FIELD INJECTION (@Autowired):
-❌ Can be null (harder to reason about)
-❌ Dependencies not obvious
-❌ Requires reflection for testing
-❌ Spring magic (implicit)
+### 7. Why should controllers return DTOs instead of entities?
 
-RULE: Always use constructor injection!
-```
+**Answer:** DTOs prevent persistence details from leaking into the API, avoid accidental lazy-loading or recursive JSON serialization, and allow the API and database model to evolve independently.
 
----
+### 8. What makes a singleton bean unsafe?
 
-## Question 3: Spring Bean Lifecycle
+**Answer:** Mutable request-specific state stored in an instance field. Singleton beans are shared by concurrent requests, so request data should stay in method-local variables or immutable objects.
 
-**Answer:**
-```
-1. INSTANTIATION - Spring creates object instance
-2. DEPENDENCY INJECTION - Dependencies injected
-3. INITIALIZATION - @PostConstruct method called
-4. READY - Bean available for use
-5. DESTRUCTION - @PreDestroy method called (on shutdown)
+### 9. How would you debug a missing bean?
 
-Use cases:
-- @PostConstruct: Initialize resources, load cache, DB connections
-- @PreDestroy: Close connections, cleanup, release resources
-```
+**Answer:** Check package scanning boundaries, profile and conditional properties, constructor dependencies, and whether multiple candidates require `@Qualifier`. Then inspect the startup error and condition evaluation report rather than adding random annotations.
 
----
+### 10. Explain the request flow in Spring MVC.
 
-## Question 4: What's the difference between @Component, @Service, @Repository?
+**Answer:** Filters run first, then `DispatcherServlet` selects a controller method using mappings. Argument resolvers build method arguments, the controller calls application services, and message converters serialize the return value into the HTTP response. Exceptions can be converted centrally by `@RestControllerAdvice`.
 
-**Answer:**
-```
-Semantically, they're the same (@Component is parent).
-But they indicate intent:
+## Revision Checklist
 
-@Component - Generic component
-@Service - Business logic
-@Repository - Data access (automatically translates DB exceptions)
-
-@Repository also provides exception translation:
-DataAccessException (Spring) ← SQLException (Database)
-
-Best practice: Use the most specific one for clarity!
-```
-
----
-
-## Question 5: application.properties vs application.yml
-
-**Answer:**
-```
-PROPERTIES FORMAT:
-server.port=8080
-spring.datasource.url=jdbc:mysql://localhost/mydb
-
-YAML FORMAT:
-server:
-  port: 8080
-spring:
-  datasource:
-    url: jdbc:mysql://localhost/mydb
-
-YAML is more readable but slightly slower to parse.
-Spring Boot reads both.
-
-CHOICE: Team preference (usually YAML for new projects)
-```
-
----
-
-# SUMMARY: Spring Boot Fundamentals Mastery
-
-✅ **IoC & Dependency Injection:**
-- [ ] Understand IoC vs traditional approach
-- [ ] Know 3 DI methods (constructor preferred)
-- [ ] Understand bean lifecycle
-- [ ] Know @PostConstruct and @PreDestroy
-
-✅ **Annotations:**
-- [ ] Know stereotypes (@Component, @Service, @Repository)
-- [ ] Know request mapping (@GetMapping, @PostMapping, etc.)
-- [ ] Know @PathVariable, @RequestParam, @RequestBody
-- [ ] Know @Configuration and @Bean
-
-✅ **Configuration:**
-- [ ] Know application.properties structure
-- [ ] Know environment-specific configs
-- [ ] Can use @Value and @ConfigurationProperties
-- [ ] Know common properties
-
-✅ **Project Structure:**
-- [ ] Know standard folder structure
-- [ ] Know when to use each component type
-- [ ] Understand package organization
-
----
-
-**Master Spring Boot fundamentals—they're the foundation!**
+- [ ] Explain IoC, DI, constructor injection, and bean lifecycle in your own words.
+- [ ] Draw the startup and request flow without looking at the notes.
+- [ ] Explain when to use `@Bean`, `@Service`, and `@Repository`.
+- [ ] Describe why proxies affect `@Transactional`, `@Async`, and caching.
+- [ ] Build a controller-service-repository slice using DTOs.
+- [ ] Explain how configuration and secrets differ between local and production environments.

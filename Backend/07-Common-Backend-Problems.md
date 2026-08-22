@@ -1,666 +1,131 @@
-# Common Backend Problems & Solutions
-## Caching, Pagination, Transactions, Optimistic Locking, Real-World Patterns
+# Common Backend Problems and Reliable Patterns
 
----
+These patterns are useful because they address failure under retries, concurrency, scale, or partial outages. Always state the invariant first, then explain the mechanism and its trade-offs.
 
-## TABLE OF CONTENTS
-1. Caching Strategies
-2. Pagination & Sorting
-3. Soft Deletes
-4. Optimistic Locking
-5. Common Patterns
-6. Interview Scenarios
+## 1. Caching
 
----
-
-# PART 1: CACHING STRATEGIES
-
-## Cache Aside (Lazy Load)
+Cache-aside is the common starting point:
 
 ```java
-@Service
-public class UserService {
-    
-    @Autowired
-    private UserRepository userRepository;
-    
-    @Autowired
-    private CacheManager cacheManager;
-    
-    public User getUserById(Long id) {
-        Cache cache = cacheManager.getCache("users");
-        User user = cache.get(id, User.class);
-        
-        if (user == null) {
-            // Cache miss - load from DB
-            user = userRepository.findById(id).orElse(null);
-            if (user != null) {
-                cache.put(id, user);
-            }
-        }
-        return user;
-    }
+@Cacheable(cacheNames = "users", key = "#id")
+@Transactional(readOnly = true)
+public UserResponse findUser(long id) {
+    return repository.findById(id).map(mapper::toResponse)
+        .orElseThrow(() -> new NotFoundException("User"));
 }
 
-// Or with Spring annotation (cleaner):
-@Cacheable("users")
-public User getUserById(Long id) {
-    return userRepository.findById(id).orElse(null);
-}
-
-// Cache invalidation:
-@CacheEvict("users")
-public void deleteUser(Long id) {
-    userRepository.deleteById(id);
-}
-
-// Update cache:
-@CachePut(value = "users", key = "#id")
-public User updateUser(Long id, User user) {
-    return userRepository.save(user);
+@CacheEvict(cacheNames = "users", key = "#id")
+@Transactional
+public void deleteUser(long id) {
+    repository.deleteById(id);
 }
 ```
 
----
+On a miss, the application reads the database and populates the cache. On a write, invalidate or update the cache after the database operation succeeds. Database and cache writes are not automatically atomic; a crash between them can leave stale data. Use TTLs, versioned values, explicit invalidation, and metrics for hit rate and evictions.
 
-## Write Through
+Prevent cache stampedes with request coalescing, jittered TTLs, stale-while-revalidate, or a short distributed lock. A cache must also have an eviction and serialization policy. Never cache private data as publicly shareable, and treat cache availability as part of the failure design.
 
-```java
-// Write to cache and database atomically
+## 2. Pagination
 
-@Service
-public class UserService {
-    
-    @Autowired
-    private UserRepository userRepository;
-    
-    @Autowired
-    private Cache cache;
-    
-    public User createUser(User user) {
-        // 1. Write to database
-        User saved = userRepository.save(user);
-        
-        // 2. Write to cache
-        cache.put(saved.getId(), saved);
-        
-        return saved;
-    }
-}
+Offset pagination is easy and supports random page access, but deep offsets can scan and discard many rows. Keyset pagination uses a cursor and a stable indexed order:
 
-// Benefits:
-// - Cache always has latest data
-// - Consistent writes
-// - Read hits cache
-//
-// Disadvantages:
-// - Slower writes (dual write)
-// - Cache must be reliable
+```sql
+SELECT id, name, created_at
+FROM users
+WHERE (created_at, id) < (:createdAt, :id)
+ORDER BY created_at DESC, id DESC
+LIMIT :limit;
 ```
 
----
+The tie-breaker `id` makes ordering deterministic. Encode the cursor so clients do not depend on database details, validate a maximum limit, and index the filter plus ordering columns. Search and sort fields must be allowlisted.
 
-## Cache Warming
+## 3. Soft Deletes
 
-```java
-@Component
-public class CacheWarmer {
-    
-    @Autowired
-    private UserRepository userRepository;
-    
-    @Autowired
-    private Cache cache;
-    
-    @PostConstruct // On app startup
-    public void warmCache() {
-        List<User> users = userRepository.findAll();
-        for (User user : users) {
-            cache.put(user.getId(), user);
-        }
-    }
-    
-    @Scheduled(cron = "0 0 2 * * ?") // Daily at 2 AM
-    public void refreshCache() {
-        cache.clear();
-        warmCache();
-    }
-}
-
-// Benefits:
-// - Avoid cold cache on startup
-// - Preload hot data
-```
-
----
-
-# PART 2: PAGINATION & SORTING
-
-## Proper Pagination
+Soft delete preserves records but adds filtering and retention complexity:
 
 ```java
-// ❌ WRONG: Load all data (memory issue!)
-public List<User> getAllUsers() {
-    return userRepository.findAll();
-}
-
-// ✅ CORRECT: Paginate
-public Page<User> getUsers(
-    @RequestParam(defaultValue = "0") int page,
-    @RequestParam(defaultValue = "10") int size,
-    @RequestParam(defaultValue = "id,desc") String sort
-) {
-    Sort sortSpec = parseSortString(sort);
-    Pageable pageable = PageRequest.of(page, size, sortSpec);
-    return userRepository.findAll(pageable);
-}
-
-// Helper to parse sort string
-private Sort parseSortString(String sortStr) {
-    // "id,desc" → Sort.by(Sort.Order.desc("id"))
-    String[] parts = sortStr.split(",");
-    String field = parts[0];
-    String direction = parts.length > 1 ? parts[1] : "asc";
-    
-    Sort.Direction dir = direction.equals("desc") 
-        ? Sort.Direction.DESC 
-        : Sort.Direction.ASC;
-    
-    return Sort.by(new Sort.Order(dir, field));
-}
-
-// Response:
-{
-  "content": [ {...}, {...} ],
-  "totalElements": 100,
-  "totalPages": 10,
-  "currentPage": 0,
-  "pageSize": 10,
-  "hasNext": true,
-  "hasPrevious": false
-}
+@Column(nullable = false)
+private boolean deleted;
+private Instant deletedAt;
 ```
 
----
+Use `Instant` or `LocalDateTime` directly; `@Temporal` is not for Java time types. Do not assume one custom repository method filters every query, including inherited methods and native SQL. Options include explicit specifications, Hibernate filters, database views, or a separate archive table. Define whether uniqueness applies to deleted rows and how legal retention or recovery works.
 
-## Keyset Pagination (Better for large datasets)
+## 4. Idempotency
 
-```java
-@Repository
-public interface UserRepository extends JpaRepository<User, Long> {
-    
-    @Query("SELECT u FROM User u WHERE u.id > :lastId ORDER BY u.id ASC")
-    List<User> findNextPage(
-        @Param("lastId") Long lastId,
-        @PageableDefault(size = 10) Pageable pageable
-    );
-}
+A check-then-insert is race-prone: two requests can both observe no record. Make the idempotency key unique and claim it atomically in the same transaction as the business effect:
 
-// Client uses: lastId = 100 (from previous page)
-// Gets next 10 users after ID 100
-// Better than offset (no skipping)
-
-// Usage:
-public List<User> getPage(Long lastId) {
-    return userRepository.findNextPage(lastId, PageRequest.of(0, 10));
-}
+```text
+1. Validate request and derive a request hash.
+2. Insert key and hash under a unique constraint.
+3. If duplicate, compare the hash and return the stored result.
+4. Execute the effect in the same transaction.
+5. Store status and response for later retries.
 ```
 
----
+A reused key with different parameters is a conflict. For effects involving an external provider, combine idempotency with the provider's idempotency mechanism or an outbox workflow; one database transaction cannot roll back a remote charge.
 
-# PART 3: SOFT DELETES
+## 5. Retries, Timeouts, and Circuit Breakers
 
-## Logical Deletion
+Retry only transient failures, with a bounded attempt count, exponential backoff, and jitter. Set a deadline so retries do not consume the entire request lifetime. Preserve interruption status when handling `InterruptedException`. Never retry a non-idempotent operation unless it has an idempotency key.
 
-```java
-// Add deleted flag
-@Entity
-public class User {
-    @Id
-    @GeneratedValue
-    private Long id;
-    
-    private String name;
-    
-    @Column(nullable = false)
-    private boolean deleted = false;
-    
-    @Temporal(TemporalType.TIMESTAMP)
-    private LocalDateTime deletedAt;
-}
+A circuit breaker has closed, open, and half-open states. It prevents calls to an unhealthy dependency, but it does not replace timeouts, retries, bulkheads, or a meaningful fallback. Configure it with measured failure rates and expose state metrics. A fallback must not silently return incorrect business data.
 
-// Repository - Filter out deleted
-@Repository
-public interface UserRepository extends JpaRepository<User, Long> {
-    
-    @Query("SELECT u FROM User u WHERE u.deleted = false")
-    List<User> findAllActive();
-    
-    @Query("SELECT u FROM User u WHERE u.deleted = false AND u.id = :id")
-    Optional<User> findById(@Param("id") Long id);
-}
+## 6. Outbox and Messaging
 
-// Service - Soft delete
-@Service
-public class UserService {
-    
-    public void deleteUser(Long id) {
-        User user = userRepository.findById(id).orElseThrow();
-        user.setDeleted(true);
-        user.setDeletedAt(LocalDateTime.now());
-        userRepository.save(user);
-        // Data still in database!
-    }
-}
+When a database change must produce an event, writing the row and publishing directly creates a dual-write gap. The transactional outbox pattern writes the business change and an outbox row in one database transaction. A publisher later sends the outbox event and marks it delivered. Consumers must be idempotent because delivery is commonly at-least-once. Failed messages need retry limits and a dead-letter queue with an operator recovery process.
 
-// Benefits:
-// - Recoverable
-// - Preserve relationships
-// - Audit trail
-//
-// Disadvantages:
-// - Must filter deleted everywhere
-// - Database bloat
-// - Slower queries
-```
+## 7. Money Transfer
 
----
+The invariant is conservation of value: debit and credit happen together, the amount is positive, and the source has sufficient funds. Use a database transaction, decimal types, authorization checks, idempotency, and a consistent lock order. Use a unique transfer ID and return the original result for a repeated request. For cross-bank or cross-service transfers, use a state machine and reconciliation rather than pretending one local transaction spans all systems.
 
-# PART 4: OPTIMISTIC LOCKING
+## Interview Questions and Answers
 
-## Preventing Lost Updates
+### 1. Why is cache invalidation difficult?
 
-```java
-// ❌ PROBLEM: Lost update
-// User A reads version 1
-// User B reads version 1
-// User A updates (version stays 1)
-// User B updates (version stays 1)
-// CONFLICT! One update lost
+**Answer:** The database and cache are separate systems with no automatic atomic commit. Failures and concurrent writes can create stale values. Use a clear ownership strategy, TTLs, invalidation or versioning, and metrics; accept and document bounded staleness when appropriate.
 
-// ✅ SOLUTION: Optimistic Locking
+### 2. Offset versus keyset pagination?
 
-@Entity
-public class User {
-    @Id
-    @GeneratedValue
-    private Long id;
-    
-    private String name;
-    
-    @Version // Spring manages this
-    private Long version;
-}
+**Answer:** Offset is simple and supports jumping to a page, but gets slower and unstable for deep changing datasets. Keyset is efficient and stable for next-page navigation, but requires a cursor and compatible ordering.
 
-// Service:
-@Service
-public class UserService {
-    
-    public User updateUser(Long id, String newName) {
-        User user = userRepository.findById(id).orElseThrow();
-        user.setName(newName);
-        
-        try {
-            return userRepository.save(user);
-            // If version doesn't match, OptimisticLockingFailureException
-        } catch (ObjectOptimisticLockingFailureException e) {
-            // Another user updated, retry
-            throw new ConflictException("User was updated by another user");
-        }
-    }
-}
+### 3. How do you make idempotency race-safe?
 
-// Flow:
-// User A: Read version=1
-// User B: Read version=1
-// User A: Update with version=1 → Success, version=2
-// User B: Update with version=1 → FAIL! (current is 2)
-//         Must retry with new version
+**Answer:** Use a unique database constraint and an atomic insert or claim operation. Store the request hash and result. A duplicate with the same hash returns the original result; a different payload is rejected.
 
-// Benefits:
-// - No locks (better performance)
-// - Prevents lost updates
-// - Handles conflicts gracefully
-```
+### 4. When is retrying dangerous?
 
----
+**Answer:** When the operation is not idempotent, when the failure is permanent, or when retry storms overload the dependency. Use timeouts, backoff, jitter, bounded attempts, and an idempotency mechanism.
 
-# PART 5: COMMON PATTERNS
+### 5. What does a circuit breaker solve?
 
-## Idempotent Operations
+**Answer:** It fails fast while a dependency is unhealthy and periodically tests recovery. It does not provide correctness by itself and must be paired with timeouts, bulkheads, metrics, and a safe fallback.
 
-```java
-// ❌ NOT IDEMPOTENT
-@PostMapping("/transfer")
-public void transfer(@RequestBody TransferRequest request) {
-    // Each call transfers money
-    account1.debit(100);
-    account2.credit(100);
-}
+### 6. Why use an outbox?
 
-// Call twice = transfer twice!
+**Answer:** It closes the gap between committing database state and publishing an event by storing both in one local transaction. A separate publisher delivers the event, and consumers handle duplicates.
 
-// ✅ IDEMPOTENT
-@PostMapping("/transfer")
-public void transfer(@RequestBody TransferRequest request) {
-    // Use idempotency key
-    String idempotencyKey = request.getIdempotencyKey();
-    
-    // Check if already processed
-    if (isAlreadyProcessed(idempotencyKey)) {
-        return; // Return cached result
-    }
-    
-    // Process
-    account1.debit(100);
-    account2.credit(100);
-    
-    // Mark as processed
-    markAsProcessed(idempotencyKey);
-}
+### 7. How do you prevent cache stampede?
 
-// Database:
-@Entity
-public class IdempotencyRecord {
-    @Id
-    private String idempotencyKey;
-    
-    private String response;
-    
-    private LocalDateTime processedAt;
-}
-```
+**Answer:** Coordinate concurrent misses, add TTL jitter, serve stale data while refreshing, or temporarily lock population. Bound the refresh work and monitor the cache.
 
----
+### 8. How do soft deletes affect uniqueness?
 
-## Retrying Failed Operations
+**Answer:** A normal unique index may prevent reusing a deleted email. Decide whether deleted records reserve the value, use a database-specific partial unique index, or archive records according to the business rule.
 
-```java
-@Service
-public class ReliableService {
-    
-    @Retryable(
-        value = { TemporaryException.class },
-        maxAttempts = 3,
-        backoff = @Backoff(delay = 1000)
-    )
-    public void unreliableOperation() {
-        externalService.call(); // Might fail temporarily
-    }
-    
-    @Recover
-    public void recoverFromRetry(TemporaryException ex) {
-        // Called after all retries exhausted
-        logger.error("Operation failed after retries", ex);
-        sendAlert();
-    }
-}
+### 9. How would you design a safe transfer endpoint?
 
-// Manual retry with exponential backoff:
-public void retryWithBackoff(Callable<Void> operation) {
-    int attempt = 0;
-    int maxAttempts = 3;
-    
-    while (attempt < maxAttempts) {
-        try {
-            operation.call();
-            return;
-        } catch (TemporaryException e) {
-            attempt++;
-            long delay = (long) Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-            Thread.sleep(delay);
-        }
-    }
-    throw new Exception("Operation failed after " + maxAttempts + " attempts");
-}
-```
+**Answer:** Authenticate and authorize the source account, validate a positive decimal amount, require an idempotency key, lock accounts in deterministic order inside a short transaction, enforce sufficient funds, record an audit event, and map repeated or conflicting requests clearly.
 
----
+### 10. What is at-least-once delivery?
 
-## Circuit Breaker Pattern
+**Answer:** A message is retried until acknowledged, so it may be delivered more than once. Consumers must deduplicate or make processing idempotent; exactly-once business behavior usually requires application-level design.
 
-```java
-// External service might be down temporarily
-// Circuit Breaker: Fast fail instead of retrying
+## Revision Checklist
 
-@Service
-public class ExternalServiceClient {
-    
-    @CircuitBreaker(
-        name = "externalService",
-        fallbackMethod = "fallback"
-    )
-    public Data fetchData() {
-        return externalService.getData();
-    }
-    
-    public Data fallback(Exception ex) {
-        // Return cached/default data
-        return getLastKnownData();
-    }
-}
-
-// States:
-// CLOSED: Normal, requests go through
-// OPEN: Service down, requests fail fast
-// HALF_OPEN: Testing if service recovered
-
-// Config:
-resilience4j.circuitbreaker.instances.externalService:
-  failure-rate-threshold: 50
-  wait-duration-in-open-state: 30000 (30 seconds)
-  minimum-number-of-calls: 10
-```
-
----
-
-# PART 6: INTERVIEW SCENARIOS
-
-## Scenario 1: Design user profile update API
-
-**Answer:**
-```java
-@Entity
-public class User {
-    @Id private Long id;
-    @Version private Long version; // Optimistic lock
-    private String name;
-    private String email;
-    
-    @CreationTimestamp private LocalDateTime createdAt;
-    @UpdateTimestamp private LocalDateTime updatedAt;
-}
-
-@RestController
-@RequestMapping("/api/users")
-public class UserController {
-    
-    @PutMapping("/{id}")
-    public ResponseEntity<User> updateUser(
-        @PathVariable Long id,
-        @Valid @RequestBody UpdateUserRequest request
-    ) {
-        try {
-            User updated = userService.updateUser(id, request);
-            return ResponseEntity.ok(updated);
-        } catch (ObjectOptimisticLockingFailureException e) {
-            return ResponseEntity.status(409).body(null); // Conflict
-        }
-    }
-}
-
-@Service
-public class UserService {
-    
-    @Transactional
-    public User updateUser(Long id, UpdateUserRequest request) {
-        User user = userRepository.findById(id).orElseThrow();
-        
-        if (request.getName() != null) {
-            user.setName(request.getName());
-        }
-        if (request.getEmail() != null) {
-            user.setEmail(request.getEmail());
-        }
-        
-        return userRepository.save(user);
-        // Optimistic lock checked automatically
-    }
-}
-
-// Key points:
-// - @Version for optimistic locking
-// - @Valid for validation
-// - @Transactional for consistency
-// - 409 Conflict on version mismatch
-// - Timestamps for audit
-```
-
----
-
-## Scenario 2: Design paginated search API
-
-**Answer:**
-```java
-@GetMapping("/search")
-public ResponseEntity<Page<User>> search(
-    @RequestParam String query,
-    @RequestParam(defaultValue = "0") int page,
-    @RequestParam(defaultValue = "10") int size,
-    @RequestParam(defaultValue = "name,asc") String sort
-) {
-    Pageable pageable = PageRequest.of(page, size, parseSortString(sort));
-    Page<User> results = userService.search(query, pageable);
-    
-    return ResponseEntity
-        .ok()
-        .header("X-Total-Count", String.valueOf(results.getTotalElements()))
-        .body(results);
-}
-
-@Service
-public class UserService {
-    
-    public Page<User> search(String query, Pageable pageable) {
-        return userRepository.search(query, pageable);
-    }
-}
-
-@Repository
-public interface UserRepository extends JpaRepository<User, Long> {
-    
-    @Query("SELECT u FROM User u " +
-           "WHERE u.deleted = false AND " +
-           "(LOWER(u.name) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
-           " LOWER(u.email) LIKE LOWER(CONCAT('%', :query, '%')))")
-    Page<User> search(@Param("query") String query, Pageable pageable);
-}
-
-// Key points:
-// - Pageable for pagination
-// - Sort string parsing
-// - Soft delete filter
-// - LOWER() for case-insensitive search
-// - X-Total-Count header for total count
-```
-
----
-
-## Scenario 3: Handle money transfer safely
-
-**Answer:**
-```java
-@Entity
-public class Transfer {
-    @Id
-    private String transferId; // Idempotency key
-    
-    private Long fromAccountId;
-    private Long toAccountId;
-    private BigDecimal amount;
-    
-    @Enumerated(EnumType.STRING)
-    private TransferStatus status; // PENDING, COMPLETED, FAILED
-}
-
-@Service
-public class TransferService {
-    
-    @Transactional
-    public void transfer(TransferRequest request) {
-        String idempotencyKey = request.getIdempotencyKey();
-        
-        // Check if already processed (idempotent)
-        Transfer existing = transferRepository.findById(idempotencyKey).orElse(null);
-        if (existing != null && existing.getStatus() == COMPLETED) {
-            return;
-        }
-        
-        // Lock accounts (prevent concurrent transfers)
-        Account from = accountRepository.findByIdWithLock(request.getFromId());
-        Account to = accountRepository.findByIdWithLock(request.getToId());
-        
-        // Validate
-        if (from.getBalance().compareTo(request.getAmount()) < 0) {
-            throw new InsufficientFundsException();
-        }
-        
-        // Transfer
-        from.setBalance(from.getBalance().subtract(request.getAmount()));
-        to.setBalance(to.getBalance().add(request.getAmount()));
-        
-        accountRepository.save(from);
-        accountRepository.save(to);
-        
-        // Record transfer
-        Transfer transfer = new Transfer();
-        transfer.setTransferId(idempotencyKey);
-        transfer.setFromAccountId(from.getId());
-        transfer.setToAccountId(to.getId());
-        transfer.setAmount(request.getAmount());
-        transfer.setStatus(COMPLETED);
-        transferRepository.save(transfer);
-    }
-}
-
-// With pessimistic lock:
-@Query(value = "SELECT * FROM account WHERE id = :id FOR UPDATE",
-       nativeQuery = true)
-Account findByIdWithLock(@Param("id") Long id);
-
-// Key points:
-// - Idempotency key for safety
-// - Pessimistic lock on accounts
-// - Validate before transfer
-// - Record transfer
-// - Transaction rollback on error
-```
-
----
-
-# SUMMARY: Common Problems Mastery
-
-✅ **Caching:**
-- [ ] Know cache-aside strategy
-- [ ] Know cache invalidation
-- [ ] Know @Cacheable, @CacheEvict
-
-✅ **Pagination:**
-- [ ] Know offset-based pagination
-- [ ] Know keyset pagination
-- [ ] Know sorting
-
-✅ **Concurrency:**
-- [ ] Know optimistic locking
-- [ ] Know pessimistic locking
-- [ ] Know soft deletes
-
-✅ **Patterns:**
-- [ ] Know idempotent operations
-- [ ] Know retry logic
-- [ ] Know circuit breaker
-- [ ] Know money transfer safety
-
----
-
-**Master these patterns—they're asked in system design!**
+- [ ] Explain cache-aside consistency and stampede protection.
+- [ ] Design stable offset and keyset pagination.
+- [ ] Make idempotency safe under concurrent requests.
+- [ ] Choose retryable failures and configure timeouts and jitter.
+- [ ] Explain circuit breakers, bulkheads, outbox, and dead-letter queues.
+- [ ] Design a transfer flow around invariants and failure recovery.

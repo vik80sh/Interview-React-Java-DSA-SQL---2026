@@ -1,647 +1,166 @@
-# REST API Design & Implementation
-## Complete Guide with Real Examples
+# REST API Design
 
----
+REST is a style for designing network APIs around resources and HTTP semantics. A good interview answer connects a URL, method, status code, representation, validation rule, and failure behavior.
 
-## TABLE OF CONTENTS
-1. REST Principles
-2. HTTP Methods & Status Codes
-3. Request/Response Design
-4. Error Handling
-5. API Versioning
-6. Common Interview Questions
+## 1. Resource Thinking
 
----
+Prefer nouns in URLs and let the HTTP method describe the operation:
 
-# PART 1: REST PRINCIPLES
-
-## What is REST?
-
-```
-REST = Representational State Transfer
-
-PRINCIPLES:
-1. Client-Server Architecture
-2. Statelessness (each request has all needed info)
-3. Cacheable (responses can be cached)
-4. Uniform Interface (consistent API design)
-5. Resource-Based (URLs represent resources, not actions)
-
-EXAMPLES:
-✅ REST: GET /api/users/1 (get user resource)
-❌ NOT REST: GET /api/getUser?id=1 (action-based)
-
-✅ REST: POST /api/users (create user resource)
-❌ NOT REST: GET /api/createUser (action-based)
+```text
+GET    /api/v1/users/42       read a user
+POST   /api/v1/users          create a user
+PUT    /api/v1/users/42       replace a user
+PATCH  /api/v1/users/42       partially modify a user
+DELETE /api/v1/users/42       delete a user
 ```
 
----
+`/getUser?id=42` is RPC-shaped. It can be valid, but it does not use HTTP's resource model as clearly. Some operations are naturally commands, such as `POST /payments/{id}/capture`; consistency and clear semantics matter more than forcing every action into a noun.
 
-## Resource-Based Design
+REST constraints include client-server separation, stateless requests, cacheability, a uniform interface, and layered systems. Stateless means the server does not rely on hidden conversational state between requests; it does not mean the application cannot use a database or cache.
+
+## 2. HTTP Semantics
+
+- **Safe** methods do not intentionally change server state: `GET`, `HEAD`, and `OPTIONS`.
+- **Idempotent** means repeating the same request has the same intended effect as sending it once. `GET`, `PUT`, and `DELETE` are defined as idempotent, although a response can differ. `PATCH` may be idempotent or non-idempotent depending on its operation.
+- `POST` is not inherently idempotent. Use an idempotency key when a client may safely retry a create or payment request.
+
+`PUT` replaces the selected representation. Whether omitted fields are rejected, defaulted, or cleared is an API contract, not a universal HTTP rule. `PATCH` changes only named fields and must define null versus omitted behavior.
+
+## 3. Status Codes That Communicate
+
+```text
+200 OK              successful request with a representation
+201 Created         resource created; include Location when useful
+202 Accepted        work accepted for asynchronous processing
+204 No Content      successful operation with no response body
+400 Bad Request     malformed syntax or invalid request shape
+401 Unauthorized    no valid authentication credentials
+403 Forbidden       authenticated but not allowed
+404 Not Found       resource absent, or intentionally hidden
+409 Conflict        state conflict, such as duplicate email or version mismatch
+422 Unprocessable   syntactically valid but semantically invalid input
+429 Too Many        rate limit exceeded
+500 Internal Error  unexpected server failure
+503 Unavailable     temporary inability to serve the request
+```
+
+Do not return stack traces or database messages to clients. Log the exception with a correlation ID and return a stable, safe error contract.
+
+## 4. DTOs, Validation, and Pagination
 
 ```java
-// ❌ ACTION-BASED (Not REST)
-GET /api/getUser/1
-GET /api/deleteUser/1
-POST /api/createUser
-POST /api/updateUser/1
+public record CreateUserRequest(
+    @NotBlank @Size(max = 80) String name,
+    @NotBlank @Email String email
+) {}
 
-// ✅ RESOURCE-BASED (REST)
-GET /api/users/1        (read)
-DELETE /api/users/1     (delete)
-POST /api/users         (create)
-PUT /api/users/1        (update)
-
-// HTTP method determines the action!
-// URL identifies the RESOURCE, not the action
-```
-
----
-
-# PART 2: HTTP METHODS & STATUS CODES
-
-## HTTP Methods
-
-```java
-// GET - Retrieve resource (SAFE & IDEMPOTENT)
-@GetMapping("/users/{id}")
-public User getUser(@PathVariable Long id) {
-    return userService.getUserById(id);
-}
-
-// POST - Create resource (NOT idempotent)
-@PostMapping("/users")
-public User createUser(@RequestBody User user) {
-    return userService.save(user);
-}
-
-// PUT - Update entire resource (IDEMPOTENT)
-@PutMapping("/users/{id}")
-public User updateUser(@PathVariable Long id, @RequestBody User user) {
-    return userService.update(id, user);
-}
-
-// PATCH - Partial update (IDEMPOTENT)
-@PatchMapping("/users/{id}")
-public User partialUpdate(@PathVariable Long id, @RequestBody UserDTO dto) {
-    return userService.partialUpdate(id, dto);
-}
-
-// DELETE - Delete resource (IDEMPOTENT)
-@DeleteMapping("/users/{id}")
-public void deleteUser(@PathVariable Long id) {
-    userService.delete(id);
-}
-
-// TERMINOLOGY:
-// SAFE: Doesn't modify server state (GET, HEAD, OPTIONS)
-// IDEMPOTENT: Same result multiple times (GET, PUT, DELETE, PATCH, HEAD, OPTIONS)
-// NON-IDEMPOTENT: Different result each call (POST)
-```
-
----
-
-## HTTP Status Codes
-
-```java
-// 2xx - SUCCESS
+public record UserResponse(Long id, String name, String email) {}
 
 @PostMapping
-public ResponseEntity<User> createUser(@RequestBody User user) {
-    User saved = userService.save(user);
-    return ResponseEntity.status(201).body(saved); // 201 Created
+public ResponseEntity<UserResponse> create(
+        @Valid @RequestBody CreateUserRequest request) {
+    UserResponse created = service.create(request);
+    URI location = URI.create("/api/v1/users/" + created.id());
+    return ResponseEntity.created(location).body(created);
 }
-
-@GetMapping("/{id}")
-public User getUser(@PathVariable Long id) {
-    return userService.getUserById(id); // 200 OK (implicit)
-}
-
-@DeleteMapping("/{id}")
-public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
-    userService.delete(id);
-    return ResponseEntity.noContent().build(); // 204 No Content
-}
-
-// 3xx - REDIRECTION
-
-// 4xx - CLIENT ERROR
-
-@GetMapping("/{id}")
-public ResponseEntity<User> getUser(@PathVariable Long id) {
-    return userService.getUserById(id)
-        .map(ResponseEntity::ok)
-        .orElse(ResponseEntity.notFound().build()); // 404 Not Found
-}
-
-@PostMapping
-public ResponseEntity<?> createUser(@RequestBody User user) {
-    if (!validateUser(user)) {
-        return ResponseEntity.badRequest().build(); // 400 Bad Request
-    }
-}
-
-// Check authorization:
-if (!currentUser.hasPermission()) {
-    return ResponseEntity.status(403).build(); // 403 Forbidden
-}
-
-// Check authentication:
-if (!isAuthenticated()) {
-    return ResponseEntity.status(401).build(); // 401 Unauthorized
-}
-
-// 5xx - SERVER ERROR (usually automatic on exception)
-// 500 Internal Server Error
-// 503 Service Unavailable
 ```
 
----
+Do not bind request JSON directly to an entity. Separate request DTOs prevent mass assignment, where a caller sets fields such as `role` or `approved` that the endpoint should control.
 
-## Status Code Summary
-
-```
-200 OK              - Request successful, response has body
-201 Created         - Resource created successfully
-204 No Content      - Request successful, no response body (DELETE)
-301 Moved           - Resource moved permanently
-304 Not Modified    - Cache still valid
-400 Bad Request     - Invalid request format/data
-401 Unauthorized    - Authentication required
-403 Forbidden       - Authenticated but no permission
-404 Not Found       - Resource doesn't exist
-409 Conflict        - Request conflicts with current state
-422 Unprocessable   - Validation failed
-429 Too Many        - Rate limit exceeded
-500 Internal Error  - Server error
-503 Unavailable     - Service temporarily down
-
-RULE:
-- Use most specific code
-- 2xx for success
-- 3xx for redirection
-- 4xx for client errors
-- 5xx for server errors
-```
-
----
-
-# PART 3: REQUEST/RESPONSE DESIGN
-
-## Request Design
+For list endpoints, validate page size and allowlist sortable fields:
 
 ```java
-// Simple GET
-@GetMapping("/users/{id}")
-public User getUser(@PathVariable Long id) {
-    return userService.getUserById(id);
-}
-
-// GET with filters
-@GetMapping("/users")
-public Page<User> getUsers(
-    @RequestParam(defaultValue = "0") int page,
-    @RequestParam(defaultValue = "10") int size,
-    @RequestParam(required = false) String role,
-    @RequestParam(required = false) Boolean active
-) {
-    return userService.findUsers(page, size, role, active);
-}
-
-// GET with sorting
-@GetMapping("/users")
-public Page<User> getUsers(
-    Pageable pageable // Spring converts to Page/Sort
-) {
-    return userService.findAll(pageable);
-}
-// Usage: GET /users?page=0&size=10&sort=name,asc
-
-// POST with validation
-@PostMapping("/users")
-public ResponseEntity<User> createUser(
-    @Valid @RequestBody CreateUserRequest request
-) {
-    User user = userService.create(request);
-    return ResponseEntity.status(201).body(user);
-}
-
-// PUT - Full update
-@PutMapping("/users/{id}")
-public User updateUser(
-    @PathVariable Long id,
-    @Valid @RequestBody User user
-) {
-    return userService.update(id, user);
-}
-
-// PATCH - Partial update
-@PatchMapping("/users/{id}")
-public User partialUpdate(
-    @PathVariable Long id,
-    @RequestBody Map<String, Object> updates
-) {
-    return userService.partialUpdate(id, updates);
+int safeSize = Math.min(Math.max(requestedSize, 1), 100);
+Set<String> allowedSorts = Set.of("name", "createdAt");
+if (!allowedSorts.contains(sortField)) {
+    throw new BadRequestException("Unsupported sort field");
 }
 ```
 
----
+Offset pagination (`page` and `size`) is simple and supports total counts, but deep pages become expensive and can shift while rows are inserted. Keyset pagination uses a stable cursor, for example `(createdAt, id)`, and is usually better for large changing datasets. The ordering must be deterministic and unique.
 
-## Response Design
+## 5. Error Handling
 
-```java
-// Standard response
-@GetMapping("/users/{id}")
-public User getUser(@PathVariable Long id) {
-    return userService.getUserById(id);
-}
-// Response: { "id": 1, "name": "John", "email": "john@example.com" }
-
-// List response
-@GetMapping("/users")
-public List<User> getUsers() {
-    return userService.findAll();
-}
-// Response: [{ "id": 1, "name": "John" }, { "id": 2, "name": "Jane" }]
-
-// Paginated response
-@GetMapping("/users")
-public Page<User> getUsers(Pageable pageable) {
-    return userService.findAll(pageable);
-}
-// Response: { "content": [...], "totalElements": 100, "totalPages": 10, "number": 0 }
-
-// Custom response wrapper
-@GetMapping("/users/{id}")
-public ResponseEntity<ApiResponse<User>> getUser(@PathVariable Long id) {
-    User user = userService.getUserById(id);
-    return ResponseEntity.ok(new ApiResponse<>(true, "User found", user));
-}
-
-// Response:
-// {
-//   "success": true,
-//   "message": "User found",
-//   "data": { "id": 1, "name": "John" }
-// }
-
-public class ApiResponse<T> {
-    private boolean success;
-    private String message;
-    private T data;
-    
-    public ApiResponse(boolean success, String message, T data) {
-        this.success = success;
-        this.message = message;
-        this.data = data;
-    }
-}
-```
-
----
-
-# PART 4: ERROR HANDLING
-
-## Exception Handling Strategy
+Spring's `@RestControllerAdvice` centralizes translation from application exceptions to HTTP responses:
 
 ```java
-// 1. CREATE CUSTOM EXCEPTIONS
-public class UserNotFoundException extends RuntimeException {
-    public UserNotFoundException(String message) {
-        super(message);
-    }
-}
+public record ApiError(
+    String type, String title, int status, String detail, String instance) {}
 
-public class InvalidUserException extends RuntimeException {
-    public InvalidUserException(String message) {
-        super(message);
-    }
-}
-
-// 2. SERVICE LAYER - Throw exceptions
-@Service
-public class UserService {
-    @Autowired
-    private UserRepository userRepository;
-    
-    public User getUserById(Long id) {
-        return userRepository.findById(id)
-            .orElseThrow(() -> new UserNotFoundException("User not found"));
-    }
-    
-    public User createUser(CreateUserRequest request) {
-        if (request.getName() == null || request.getName().isEmpty()) {
-            throw new InvalidUserException("User name is required");
-        }
-        
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new InvalidUserException("Email already exists");
-        }
-        
-        return userRepository.save(new User(request));
-    }
-}
-
-// 3. ERROR RESPONSE DTO
-public class ErrorResponse {
-    private String message;
-    private int status;
-    private String timestamp;
-    private String path;
-    
-    public ErrorResponse(String message, int status, String path) {
-        this.message = message;
-        this.status = status;
-        this.path = path;
-        this.timestamp = LocalDateTime.now().toString();
-    }
-}
-
-// 4. GLOBAL EXCEPTION HANDLER
 @RestControllerAdvice
-public class GlobalExceptionHandler {
-    
+class ApiExceptionHandler {
     @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleUserNotFound(
-        UserNotFoundException ex,
-        HttpServletRequest request
-    ) {
-        ErrorResponse error = new ErrorResponse(
-            ex.getMessage(),
-            404,
-            request.getRequestURI()
-        );
-        return ResponseEntity.status(404).body(error);
-    }
-    
-    @ExceptionHandler(InvalidUserException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidUser(
-        InvalidUserException ex,
-        HttpServletRequest request
-    ) {
-        ErrorResponse error = new ErrorResponse(
-            ex.getMessage(),
-            400,
-            request.getRequestURI()
-        );
-        return ResponseEntity.status(400).body(error);
-    }
-    
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(
-        MethodArgumentNotValidException ex,
-        HttpServletRequest request
-    ) {
-        String message = ex.getBindingResult()
-            .getFieldErrors()
-            .stream()
-            .map(err -> err.getField() + ": " + err.getDefaultMessage())
-            .collect(Collectors.joining(", "));
-        
-        ErrorResponse error = new ErrorResponse(message, 400, request.getRequestURI());
-        return ResponseEntity.status(400).body(error);
-    }
-    
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGenericException(
-        Exception ex,
-        HttpServletRequest request
-    ) {
-        ErrorResponse error = new ErrorResponse(
-            "Internal server error",
-            500,
-            request.getRequestURI()
-        );
-        return ResponseEntity.status(500).body(error);
-    }
-}
-
-// 5. CONTROLLER - Clean code (exception handling in controller advice)
-@RestController
-@RequestMapping("/api/users")
-public class UserController {
-    
-    @Autowired
-    private UserService userService;
-    
-    @GetMapping("/{id}")
-    public User getUser(@PathVariable Long id) {
-        return userService.getUserById(id); // Exception handled by @RestControllerAdvice
-    }
-    
-    @PostMapping
-    public ResponseEntity<User> createUser(@Valid @RequestBody CreateUserRequest request) {
-        User user = userService.createUser(request); // Exception handled
-        return ResponseEntity.status(201).body(user);
-    }
-}
-
-// ✅ BENEFITS:
-// - Centralized error handling
-// - Consistent error responses
-// - Clean controller code
-// - Easy to test
-```
-
----
-
-# PART 5: API VERSIONING
-
-## Versioning Strategies
-
-```java
-// Strategy 1: URL versioning (Most common)
-@RestController
-@RequestMapping("/api/v1/users")
-public class UserControllerV1 {
-    @GetMapping("/{id}")
-    public User getUser(@PathVariable Long id) { }
-}
-
-@RestController
-@RequestMapping("/api/v2/users")
-public class UserControllerV2 {
-    @GetMapping("/{id}")
-    public UserDTO getUser(@PathVariable Long id) { } // Different response
-}
-
-// Strategy 2: Header versioning
-@RestController
-@RequestMapping("/api/users")
-public class UserController {
-    
-    @GetMapping("/{id}")
-    @RequestMapping(headers = "API-Version=1")
-    public User getUserV1(@PathVariable Long id) { }
-    
-    @GetMapping("/{id}")
-    @RequestMapping(headers = "API-Version=2")
-    public UserDTO getUserV2(@PathVariable Long id) { }
-}
-// Usage: GET /api/users/1 with header "API-Version: 2"
-
-// ❌ Strategy 3: Query parameter (Generally discouraged)
-GET /api/users/1?v=2
-
-// BEST PRACTICE: URL versioning (clear and explicit)
-```
-
----
-
-# PART 6: INTERVIEW QUESTIONS
-
-## Question 1: Design a User CRUD API
-
-**Answer:**
-```
-GET    /api/users          - Get all users (with pagination)
-POST   /api/users          - Create user
-GET    /api/users/{id}     - Get specific user
-PUT    /api/users/{id}     - Update user (full)
-PATCH  /api/users/{id}     - Update user (partial)
-DELETE /api/users/{id}     - Delete user
-
-Request examples:
-POST /api/users
-{ "name": "John", "email": "john@example.com" }
-
-Response: 201 Created
-{ "id": 1, "name": "John", "email": "john@example.com" }
-
-GET /api/users?page=0&size=10&sort=name,asc
-Response: 200 OK
-{
-  "content": [{ "id": 1, "name": "John" }],
-  "totalElements": 100,
-  "totalPages": 10
-}
-
-Error:
-POST /api/users
-{ "name": "", "email": "invalid" }
-
-Response: 400 Bad Request
-{ "message": "Name is required, Email is invalid", "status": 400 }
-```
-
----
-
-## Question 2: What's the difference between PUT and PATCH?
-
-**Answer:**
-```
-PUT:
-- Replace ENTIRE resource
-- If field not provided, it's set to null/default
-- Idempotent (same result multiple times)
-- Usually requires all fields
-
-PUT /api/users/1
-{ "name": "John" }
-Result: User updated with only name, other fields deleted
-
-PATCH:
-- Partial update
-- Only provided fields are updated
-- Idempotent
-- Can work with full or partial data
-
-PATCH /api/users/1
-{ "name": "John" }
-Result: Only name updated, other fields unchanged
-
-RULE:
-- Full update (all fields required) → PUT
-- Partial update (some fields) → PATCH
-```
-
----
-
-## Question 3: How to handle validation errors?
-
-**Answer:**
-```
-1. Use @Valid on @RequestBody
-2. Let MethodArgumentNotValidException be thrown
-3. Handle in @RestControllerAdvice
-4. Return 400 Bad Request with details
-
-Example:
-@PostMapping
-public ResponseEntity<User> createUser(@Valid @RequestBody CreateUserRequest request) {
-    // If validation fails, exception is thrown
-    // @RestControllerAdvice catches it
-    // Returns 400 with error details
-}
-
-@RestControllerAdvice
-public class GlobalExceptionHandler {
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(
-        MethodArgumentNotValidException ex
-    ) {
-        // Extract validation errors
-        // Return formatted error response
+    ResponseEntity<ApiError> notFound(UserNotFoundException ex,
+                                      HttpServletRequest request) {
+        ApiError error = new ApiError(
+            "https://example.com/problems/user-not-found",
+            "User not found", 404, ex.getMessage(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 }
 ```
 
----
+This resembles RFC 7807 Problem Details. Validation errors should include field-level details. The generic handler should log unexpected exceptions internally and return a generic message externally.
 
-## Question 4: API Versioning - When to version?
+## 6. Caching and Conditional Requests
 
-**Answer:**
-```
-VERSION when:
-- Breaking changes (removing fields, changing response format)
-- Structural changes to existing endpoints
-- Deprecating endpoints
+An `ETag` identifies a representation version. A client can send `If-None-Match`; if unchanged, the server returns `304 Not Modified`. For updates, `If-Match` can prevent overwriting a newer version and should produce `412 Precondition Failed` when it does not match.
 
-DON'T VERSION when:
-- Adding optional fields
-- Adding new endpoints
-- Fixing bugs
-- Improving performance
+Caching must declare what may be cached and for how long. Never cache private user data as public. Authentication and authorization still happen at the origin; CORS is only a browser enforcement mechanism and is not authorization.
 
-Example - No versioning needed:
-Old: GET /users/1 → { "id": 1, "name": "John" }
-New: GET /users/1 → { "id": 1, "name": "John", "email": "john@example.com" }
-(Added optional field, clients can ignore)
+## 7. Versioning and Documentation
 
-Example - Versioning needed:
-Old: { "fullName": "John Doe" }
-New: { "firstName": "John", "lastName": "Doe" }
-(Structural change, need v2)
-```
+Version when a change breaks existing clients, such as removing a field, changing its meaning, or changing a required request. Adding an optional response field is usually compatible. URL versioning (`/v1`) is easy to see and operate; header or media-type versioning keeps URLs stable but is harder to discover. Pick one policy, document deprecation dates, and measure remaining old clients.
 
----
+Use OpenAPI for discoverability and contract tests to ensure implementation matches the published contract. A version number does not fix an unstable contract; compatibility rules do.
 
-# SUMMARY: REST API Design Mastery
+## Interview Questions and Answers
 
-✅ **REST Principles:**
-- [ ] Understand resource-based design
-- [ ] Know difference from RPC-style
-- [ ] Understand statelessness
+### 1. Is PATCH idempotent?
 
-✅ **HTTP Methods:**
-- [ ] Know GET, POST, PUT, PATCH, DELETE
-- [ ] Know SAFE vs IDEMPOTENT
-- [ ] Know when to use each
+**Answer:** Not inherently. `PATCH {"name":"Ana"}` is usually idempotent because repeating it leaves the same value. An operation such as `PATCH {"op":"increment","amount":1}` is not. The patch format and server behavior decide.
 
-✅ **Status Codes:**
-- [ ] Know 2xx (success), 3xx (redirect), 4xx (client error), 5xx (server error)
-- [ ] Know common codes (200, 201, 204, 400, 401, 403, 404, 500)
+### 2. PUT versus PATCH?
 
-✅ **Error Handling:**
-- [ ] Know @RestControllerAdvice pattern
-- [ ] Know custom exceptions
-- [ ] Know validation error handling
+**Answer:** PUT replaces the representation at a URI and is idempotent. PATCH applies a partial change and may or may not be idempotent. The API must define omitted fields and null values explicitly.
 
-✅ **API Design:**
-- [ ] Know pagination design
-- [ ] Know versioning strategy
-- [ ] Know request/response design
+### 3. 401 versus 403?
 
----
+**Answer:** 401 means the request lacks valid authentication credentials. 403 means the server knows the caller but the caller lacks permission. Do not use 401 merely because a business rule rejects an authenticated user.
 
-**Master REST API design—it's 20% of backend interviews!**
+### 4. How would you make a payment endpoint retry-safe?
+
+**Answer:** Require an idempotency key scoped to the merchant or account, enforce a unique database constraint, atomically claim the key with the request hash, and return the stored result for the same request. Return a conflict if the same key is reused with different parameters.
+
+### 5. How do you design pagination for millions of rows?
+
+**Answer:** Use a bounded page size, an indexed and deterministic ordering, and keyset pagination with an opaque cursor. Validate filters and sort fields. Use offset pagination when clients need random page access and the dataset is manageable.
+
+### 6. Why use DTOs?
+
+**Answer:** They protect the API from persistence changes, prevent clients from writing server-controlled fields, and avoid serialization of lazy relationships or sensitive fields.
+
+### 7. When do you return 202?
+
+**Answer:** When the request is accepted but work is not complete, such as starting an export. Return a status resource or polling location so the client can observe completion.
+
+### 8. How should a generic exception be handled?
+
+**Answer:** Log the exception with request or trace context, return a stable safe error body, avoid leaking stack traces, and map known domain failures to specific status codes.
+
+### 9. What is an ETag useful for?
+
+**Answer:** It supports cache validation with `If-None-Match` and concurrency control with `If-Match`, reducing bandwidth and preventing lost updates.
+
+### 10. REST or RPC?
+
+**Answer:** Resource CRUD and standard HTTP caching benefit from REST. Command-heavy workflows may be clearer as RPC-style endpoints. I choose based on the domain, consistency, observability, and client needs rather than treating REST as a slogan.
+
+## Revision Checklist
+
+- [ ] Design a CRUD API with correct methods and status codes.
+- [ ] Explain safe versus idempotent and the PATCH nuance.
+- [ ] Validate DTOs and prevent mass assignment.
+- [ ] Design an error contract and correlation-ID logging.
+- [ ] Compare offset and keyset pagination.
+- [ ] Explain retries, idempotency keys, ETags, and versioning.
