@@ -12,8 +12,9 @@
 | 1️⃣ | 01-CI-CD-Fundamentals.md | 18KB | CI/CD, Jenkins, GitHub Actions, best practices | 2-3 hrs |
 | 2️⃣ | 02-AWS-Basics.md | 24KB | EC2, S3, RDS, Lambda, VPC, Load Balancer | 3-4 hrs |
 | 3️⃣ | 03-Microservices-Architecture.md | 26KB | Microservices patterns, communication, deployment | 3-4 hrs |
+| 🐳 | docker-notes-twitter-clone.md | 10KB | Docker/Compose fundamentals worked through a real Spring Boot + React project, plus basic interview Q&A | 1 hr |
 
-**TOTAL:** 68KB of DevOps/Cloud content
+**TOTAL:** 78KB of DevOps/Cloud content
 **READING TIME:** ~8-11 hours
 **WITH PRACTICE:** ~20-30 hours (hands-on labs)
 

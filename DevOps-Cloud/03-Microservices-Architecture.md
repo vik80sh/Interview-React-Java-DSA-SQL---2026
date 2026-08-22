@@ -701,6 +701,76 @@ EVENTUAL CONSISTENCY:
 
 ---
 
+## Question 4: What is an API Gateway, and why does a microservices system need one?
+
+**Answer:**
+```
+An API Gateway is the single entry point clients (a React app, a mobile app)
+actually talk to — it sits in front of all the microservices and:
+- Routes each request to the right backend service (e.g., /users/* -> User
+  Service, /orders/* -> Order Service)
+- Handles cross-cutting concerns ONCE instead of in every service: auth
+  token validation, rate limiting, request logging, CORS
+
+WITHOUT one: the frontend would need to know every service's individual
+address, and every service would have to reimplement auth/rate-limiting itself.
+```
+
+---
+
+## Question 5: What is service discovery, explained simply?
+
+**Answer:**
+```
+In a system with many service instances that scale up/down and get new IP
+addresses constantly, "service discovery" is just: how does Service A find
+the current address of Service B right now?
+
+Simple version: a registry (Eureka, Consul, or Kubernetes' built-in DNS)
+where every service instance registers itself on startup, and other services
+look it up by NAME instead of hardcoding an IP address that will change.
+```
+
+---
+
+## Question 6: Why can't microservices just share one database?
+
+**Answer:**
+```
+Sharing a database recreates the tight coupling microservices are meant to
+remove: a schema change in one team's table can silently break another
+team's service, you can't scale or choose a different database technology
+per service, and a single shared database becomes one giant bottleneck and
+single point of failure for everything.
+
+Instead: each service owns its own database, and if Order Service needs user
+data, it calls User Service's API rather than querying the users table directly.
+```
+
+---
+
+## Question 7: REST vs a message queue for calling another service — how do you choose?
+
+**Answer:**
+```
+REST (synchronous, request/response):
+- Use when you need the answer RIGHT NOW to continue (checking if a user exists
+  before creating an order)
+- Trade-off: if the other service is down or slow, your request is stuck too
+
+Message Queue (asynchronous, e.g. Kafka/RabbitMQ/SQS):
+- Use when the caller doesn't need to wait for the result (sending an order
+  confirmation email, updating analytics)
+- Trade-off: the result isn't immediate — the two services become "eventually
+  consistent" instead of instantly in sync
+
+RULE OF THUMB: if the user is waiting for that specific data to render the
+next screen, use REST. If it's a side effect nobody's staring at a spinner
+for, use a queue.
+```
+
+---
+
 # SUMMARY: Microservices Mastery
 
 ✅ **Fundamentals:**

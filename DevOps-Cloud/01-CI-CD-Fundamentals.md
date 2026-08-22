@@ -609,6 +609,62 @@ Alerting:
 
 ---
 
+## Question 5: What's the difference between Continuous Delivery and Continuous Deployment?
+
+**Answer:**
+```
+Both come after Continuous Integration (CI) — code is built and tested automatically.
+They differ in what happens next:
+
+CONTINUOUS DELIVERY:
+- Every change that passes the pipeline is READY to release
+- A human still clicks "deploy" (manual approval gate)
+- Common when a business wants a person to sign off before production
+
+CONTINUOUS DEPLOYMENT:
+- Every change that passes the pipeline is AUTOMATICALLY released
+- No manual approval step at all
+- Needs high confidence in automated tests, since nothing stops a bad
+  change from reaching production except the pipeline's own checks
+
+ONE LINE: "Delivery" = ready to ship with one click. "Deployment" = ships itself.
+```
+
+---
+
+## Question 6: What is a build artifact, and why store it in a registry instead of rebuilding it each time?
+
+**Answer:**
+```
+A build artifact is the actual output of the build step — a compiled JAR,
+a Docker image, a bundled JS app — the thing that actually gets deployed.
+
+Why not rebuild it fresh at each stage (test → staging → production)?
+- You want to deploy the EXACT same artifact you tested, not a new build that
+  might differ (a different dependency version resolved, a flaky build step)
+- Rebuilding is slower and wastes CI time
+- Storing it once in a registry (Docker Hub, AWS ECR, Nexus, Artifactory) and
+  reusing that same image/JAR through every later stage is what "build once,
+  deploy everywhere" actually means.
+```
+
+---
+
+## Question 7: Why run automated tests in the pipeline instead of just relying on manual testing before merging?
+
+**Answer:**
+```
+- Consistency: a human can forget a step; a pipeline runs the same checks every time
+- Speed: automated tests finish in minutes; manual QA takes hours to days
+- Catches regressions immediately, on every single commit, not just before a release
+- Gives every developer the same fast feedback loop, regardless of who reviews the PR
+
+Manual testing still has a place (exploratory testing, UX review) — it's just not
+a substitute for the pipeline catching the obvious, repeatable stuff automatically.
+```
+
+---
+
 # SUMMARY: CI/CD Mastery
 
 ✅ **Core Concepts:**

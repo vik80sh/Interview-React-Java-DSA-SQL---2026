@@ -14,8 +14,11 @@
 | 3️⃣ | 03-Trees-Graphs-LinkedLists.md | 20KB | Tree traversals, graph algorithms, linked lists | 3-4 hrs |
 | 4️⃣ | 04-DP-Backtracking.md | 16KB | Dynamic programming, backtracking, optimization | 3-4 hrs |
 | 5️⃣ | 05-LeetCode-Study-Plan.md | 24KB | 60+ medium problems, 10-week study plan | Guide |
+| 6️⃣ | 06-Dynamic-Programming-Patterns-and-Thinking-Process.md | 20KB | The 4-step DP thinking process, 12 pattern families with worked recurrences, common bugs | 4-5 hrs |
+| 7️⃣ | 07-DP-Quick-Revision-Cheatsheet.md | 18KB | DP-only revision: every pattern's problems with example input→output, tip, and recurrence | 30-40 min |
+| 8️⃣ | 08-DSA-Complete-Cheatsheet.md | 34KB | Whole-DSA revision (everything except DP): two pointers, sliding window, prefix sum, linked lists, trees, graphs, backtracking, binary search, greedy, stacks, heaps, hash maps — same example+tip+pattern format, 90+ problems, all 73 from file 5's study plan cross-checked in | 60-75 min |
 
-**TOTAL:** 92KB of DSA content
+**TOTAL:** 165KB of DSA content
 **READING TIME:** ~11-15 hours
 **WITH PRACTICE:** ~40-60 hours (60+ problems at 45-60 min each)
 
@@ -82,6 +85,40 @@
 - Pattern quick reference
 
 **Most important:** Which 60+ problems to do and in what order
+
+---
+
+### 6. Dynamic Programming: Patterns and Thinking Process ⭐⭐⭐⭐⭐
+**The deep DP companion to file 4 — read this once file 4's basics feel shaky on anything unfamiliar**
+- The universal 4-step DP thinking process (smell test → state → recurrence → base cases/order), demoed fully on Climbing Stairs
+- 12 pattern families, each with: how to recognize it, the recurrence template, a fully worked "thinking process" on one representative problem, and the other problems that share the shape
+- Linear DP, Kadane's, 0/1 Knapsack, Unbounded Knapsack, LCS family, LIS family, Palindrome/Interval DP, Matrix Chain/Partition DP, Grid/Path DP, State Machine DP (stock buy/sell), DP on Trees, Bitmask DP
+- The real bugs: 0/1 vs unbounded knapsack loop direction, interval-DP fill order, forward vs backward grid fill (Dungeon Game), off-by-one sizing
+
+**Most important:** Given a DP problem you've never seen, correctly naming which of the 12 patterns it is and deriving the recurrence live — not recalling a memorized solution.
+
+---
+
+### 7. DP Quick Revision Cheat Sheet ⭐⭐⭐⭐⭐
+**Read THIS one the morning of the interview — nothing else**
+- One master table: all 12 patterns, their recognition signal, memory hook, and one-line recurrence, side by side
+- A condensed block per pattern: must-know problems as a checklist, and the one trap that actually bites people
+- Rapid-fire Q&A in 1-2 line answers — the same questions from file 6, compressed for a fast self-test
+- Test-day meta-tips (say the state out loud, hand-trace a tiny example before coding, the 3 questions that narrow down the pattern fast)
+
+**Most important:** This is the one file to re-read on revision day for DP specifically — everything in files 4 and 6 feeds into this single page.
+
+---
+
+### 8. DSA Complete Cheat Sheet (Non-DP) ⭐⭐⭐⭐⭐
+**The whole-DSA companion to file 7 — read THIS one for everything that isn't DP**
+- Same format as file 7: every problem gets a real example input→output, the one tip that unlocks it, and the pattern it belongs to
+- 12 categories, 90+ problems: two pointers, sliding window, prefix sum, linked lists, trees, graphs, backtracking, binary search, greedy, stacks/monotonic stack, heaps/priority queue, hash maps
+- Cross-checked against every one of the 73 problems in file 5's study plan — nothing from that list is missing between files 7 and 8
+- A master table up top mapping "how the problem is phrased" → which category it actually is
+- Rapid-fire Q&A on the recurring judgment calls (two pointers vs sliding window, DFS vs BFS, when binary search works on an unsorted array, why a min-heap answers "Kth largest")
+
+**Most important:** Together, files 7 and 8 are the two files to re-read the morning of any interview — file 7 for DP, file 8 for everything else.
 
 ---
 
@@ -229,8 +266,9 @@ INTERVIEW SKILLS:
 ### Phase 3: Advanced (Weeks 7-10, 20-25 hours)
 1. Read 04-DP-Backtracking
 2. Do LeetCode: Weeks 6-10 problems (33 problems)
-3. Master DP patterns
-4. Practice backtracking problems
+3. When a DP problem feels unfamiliar rather than routine, work through 06-Dynamic-Programming-Patterns-and-Thinking-Process — identify which of its 12 patterns it matches and derive the recurrence using the 4-step process before looking at any solution
+4. Master DP patterns
+5. Practice backtracking problems
 
 **Goal:** Can recognize and solve DP problems, generate all solutions
 

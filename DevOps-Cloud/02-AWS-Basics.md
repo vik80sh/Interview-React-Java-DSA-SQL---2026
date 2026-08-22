@@ -635,6 +635,83 @@ SAVINGS: 50-70% with reserved instances + optimization
 
 ---
 
+## Question 4: EC2 vs Lambda — when would you use each, as a full-stack developer?
+
+**Answer:**
+```
+EC2 (a virtual machine you manage):
+- Use for: a long-running server (your Spring Boot app, a Node API that
+  must stay warm), anything needing more than ~15 minutes to run,
+  or full control over the OS/runtime
+- You manage: scaling, patching, uptime (or let Auto Scaling handle it)
+
+Lambda (serverless function):
+- Use for: short-lived, event-triggered work — resize an image on S3 upload,
+  a scheduled cleanup job, a lightweight API endpoint with spiky/low traffic
+- You DON'T manage servers at all; pay only for actual execution time
+- Trade-off: "cold starts" (first call after idle is slower), 15-minute max runtime
+
+RULE OF THUMB: if it's your main always-on application, EC2 (or a container
+platform). If it's a small, occasional, event-driven task, Lambda.
+```
+
+---
+
+## Question 5: What do full-stack developers actually use S3 for day to day?
+
+**Answer:**
+```
+S3 is object storage — not a database, a place to store FILES:
+- User-uploaded content (profile photos, PDFs, videos)
+- Static frontend hosting (a React build's HTML/CSS/JS, often paired with CloudFront)
+- Backups and exported reports/CSVs
+- As the target of a presigned-URL direct upload from the browser (so large
+  files never pass through your own application server — see the file upload
+  system design in the SystemDesign folder for the full pattern)
+
+It's NOT for: data you need to query (that's RDS/DynamoDB) or fast key lookups
+(that's a cache like Redis) — S3 is built for storing and retrieving whole files.
+```
+
+---
+
+## Question 6: What's a security group, and how is it different from a VPC?
+
+**Answer:**
+```
+VPC = the whole private network you carve out in AWS (like designing an office
+building's floor plan — which rooms/subnets exist, how they connect).
+
+Security Group = a firewall attached to a specific resource (an EC2 instance,
+an RDS database) that says exactly which traffic is allowed in and out
+- Example: "allow port 443 from anywhere, allow port 5432 only from the app
+  server's security group, block everything else"
+
+ONE LINE: VPC is the network's shape; a security group is the lock on one
+specific door within it.
+```
+
+---
+
+## Question 7: RDS vs DynamoDB — when would you pick each?
+
+**Answer:**
+```
+RDS (managed relational database — Postgres/MySQL):
+- Use when: your data has real relationships (users, orders, payments) and
+  you need transactions/joins — this is the default choice for most app data
+
+DynamoDB (managed key-value/document store):
+- Use when: you need extremely fast, simple lookups by a known key at massive
+  scale (a session store, a shopping cart, a leaderboard) and don't need joins
+
+This is the same SQL-vs-NoSQL decision covered in depth in the
+Backend/Database folder — RDS and DynamoDB are just AWS's managed versions
+of "relational" and "key-value/document," respectively.
+```
+
+---
+
 # SUMMARY: AWS Mastery
 
 ✅ **Core Services:**

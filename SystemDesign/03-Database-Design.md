@@ -1,629 +1,97 @@
-# Database Design
-## SQL vs NoSQL, Schema Design, Indexing, Read/Write Patterns
+# Database Design for System Design Interviews
 
----
+This file is the "which database, and how do I shape it for scale" layer — for SQL fundamentals themselves (joins, ACID, indexing mechanics, normalization), see the dedicated [Backend/Database folder](../Backend/Database/INDEX.md). Here, the question is always the system-design one: given this system's actual read/write pattern and consistency needs, what's the right choice, and how do you design the schema so it survives real scale.
 
-## TABLE OF CONTENTS
-1. SQL vs NoSQL Decision
-2. SQL Database Design
-3. NoSQL Database Types
-4. Indexing & Query Optimization
-5. Read/Write Patterns
-6. Common Interview Questions
+## 1. The SQL vs NoSQL Decision, as an Actual Decision (Not a Slogan)
 
----
+Ask three questions about the data, not about the technology:
 
-# PART 1: SQL VS NOSQL DECISION
+1. **Does this data have real relationships that must stay consistent?** (An order references a user and line items; a payment must match a real order.) → Relational, so foreign keys and transactions can enforce it.
+2. **Does the shape of each record vary a lot, or evolve unpredictably?** (A product catalog where a laptop has RAM/CPU and a T-shirt has size/color.) → Document store, so you're not fighting a rigid shared schema.
+3. **Is this a single-key lookup with no relationships and extreme read/write volume?** (A session, a cache entry, a counter.) → Key-value store, purpose-built for exactly that access pattern.
 
-## SQL Databases
+| | Relational (Postgres/MySQL) | Document (MongoDB) | Key-Value (Redis/DynamoDB) | Wide-Column (Cassandra) |
+|---|---|---|---|---|
+| Best for | Data with real relationships and invariants | Flexible, evolving per-record schema | Single-key lookups, sessions, caching | Massive write throughput, time-series |
+| Query flexibility | High (joins, aggregation) | Medium (per-document queries, limited joins) | Low (key lookup only) | Low-medium |
+| Scaling writes | Hard (sharding required) | Easier (built for horizontal scale) | Easiest | Built for this specifically |
+| Consistency | Strong (ACID) | Tunable, often eventual | Tunable | Eventual by default |
 
-```
-SQL = Structured Query Language (Relational)
+Full depth on this decision — with concrete scenarios for each database type — is in [Backend/Database's fundamentals guide](../Backend/Database/01-Database-Fundamentals-and-Choosing-One.md); this section is the compressed, system-design-interview version of that same reasoning.
 
-Examples: PostgreSQL, MySQL, Oracle, SQL Server
+## 2. Schema Design for Scale — Worked Example: a Social Feed
 
-CHARACTERISTICS:
-├─ Schema (predefined structure)
-├─ ACID transactions
-├─ Complex queries with JOINs
-├─ Normalized data (reduce duplication)
-└─ Vertical scaling
+Take "design the schema for posts, likes, and comments" (a real recurring sub-question inside Twitter/Instagram-style prompts):
 
-SCHEMA EXAMPLE:
-CREATE TABLE users (
-  id INT PRIMARY KEY,
-  name VARCHAR(100),
-  email VARCHAR(100),
-  created_at TIMESTAMP
-);
-
-CREATE TABLE orders (
-  id INT PRIMARY KEY,
-  user_id INT FOREIGN KEY,
-  amount DECIMAL(10,2),
-  created_at TIMESTAMP
-);
-
-QUERY:
-SELECT u.name, COUNT(*) as order_count
-FROM users u
-JOIN orders o ON u.id = o.user_id
-GROUP BY u.id;
-
-STRENGTHS:
-✅ Strong consistency
-✅ Complex queries easy
-✅ Data integrity (constraints)
-✅ Mature, well-understood
-✅ SQL standard across databases
-
-WEAKNESSES:
-❌ Hard to scale horizontally
-❌ Slower with massive datasets
-❌ Schema changes complicated
-❌ Not good for semi-structured data
+```sql
+-- The naive version: correct, but a "how many likes does this post have" query
+-- means COUNT(*) over a potentially huge likes table, every single time it's asked
+CREATE TABLE posts (id BIGINT PRIMARY KEY, user_id BIGINT, content TEXT, created_at TIMESTAMP);
+CREATE TABLE likes (post_id BIGINT, user_id BIGINT, created_at TIMESTAMP, PRIMARY KEY (post_id, user_id));
+CREATE TABLE comments (id BIGINT PRIMARY KEY, post_id BIGINT, user_id BIGINT, content TEXT, created_at TIMESTAMP);
 ```
 
----
-
-## NoSQL Databases
-
+```sql
+-- The scale-aware version: denormalize the COUNT onto the post itself
+ALTER TABLE posts ADD COLUMN like_count BIGINT DEFAULT 0;
+ALTER TABLE posts ADD COLUMN comment_count BIGINT DEFAULT 0;
+-- updated via an application-level increment (or a queued async job) on every like/comment insert,
+-- not recomputed with COUNT(*) on every single read of the post
 ```
-DOCUMENT STORE (MongoDB):
+
+This is the exact denormalization trade-off covered in the [Normalization guide](../Backend/Database/07-Normalization-and-Schema-Design.md#5-denormalization--breaking-the-rules-on-purpose-for-a-real-reason) — a fully normalized schema is technically "more correct" but means every post-list render pays a `COUNT(*)` per post; a denormalized counter trades a small amount of write complexity (keeping it in sync) for read performance that scales far better, which is the right call here because posts are read orders of magnitude more often than they're liked or commented on.
+
+**Indexing decisions that actually matter at this scale:** `posts(user_id, created_at)` for "this user's own posts, newest first," and `posts(created_at)` alone almost never scales as *the* timeline query — a global feed sorted purely by time across everyone doesn't reflect who the viewer actually follows, which is why real feed generation (covered in the [Twitter design scenario](04-Design-Twitter-Social-Feed.md)) precomputes a per-user feed rather than querying `posts` directly at read time.
+
+## 3. Designing Around a Document Store
+
+```javascript
+// A product document sized for how it'll actually be READ, not normalized for its own sake
 {
-  "_id": 1,
-  "name": "John",
-  "email": "john@example.com",
-  "orders": [
-    { "id": 1, "amount": 100 },
-    { "id": 2, "amount": 200 }
-  ]
+  _id: "prod_123",
+  name: "Wireless Headphones",
+  price: 79.00,
+  category: "electronics",
+  attributes: { batteryLifeHours: 30 },  // varies by category — the reason to choose a document store at all
+  reviewSummary: { averageRating: 4.5, count: 312 }  // denormalized summary, not the full review list
 }
-
-STRENGTHS: Flexible schema, good for unstructured data
-WEAKNESSES: No JOIN, eventual consistency
-
-KEY-VALUE STORE (Redis, Memcached):
-Key: user:123
-Value: {name: John, email: john@example.com}
-
-STRENGTHS: Ultra-fast, simple access patterns
-WEAKNESSES: No queries, limited data types
-
-WIDE COLUMN (Cassandra, HBase):
-Row Key | Column 1 | Column 2 | Column 3
-user:1  | name     | email    | created
-        | John     | j@ex.com | 2023-01-01
-
-STRENGTHS: Scales horizontally, high write throughput
-WEAKNESSES: Complex to query, eventual consistency
-
-SEARCH ENGINE (Elasticsearch):
-{
-  "name": "John",
-  "email": "john@example.com",
-  "bio": "Software engineer..."
-}
-Query: Full-text search
-
-STRENGTHS: Fast searching, flexible
-WEAKNESSES: Not transactional, memory-intensive
 ```
 
----
+The system-design-specific judgment call here: embed data that's read together with its parent and won't grow unbounded (a review *summary*); reference (a separate collection) data that's large, grows unbounded, or is queried independently (the actual list of thousands of reviews, paginated separately). Getting this backwards — embedding an unbounded array — is a real, common mistake that works fine in a demo and breaks once a popular product accumulates thousands of reviews inside one document.
 
-## Decision Tree
+## 4. Read-Heavy vs Write-Heavy Design
 
-```
-QUESTION 1: Complex relationships? Multiple entities?
-└─ YES → SQL (PostgreSQL, MySQL)
-└─ NO → Continue
+**Read-heavy systems** (a social feed, a product catalog, a blog: 90%+ reads) get the most benefit from: aggressive caching (Redis in front of the database), read replicas, and precomputing expensive aggregations ahead of read time rather than computing them live on every request. The core idea: push cost from read time (which happens constantly) to write time or a background job (which happens far less often).
 
-QUESTION 2: Need ACID transactions across multiple entities?
-└─ YES → SQL
-└─ NO → Continue
+**Write-heavy systems** (an analytics/event-logging pipeline, a ride-hailing app's constant location pings) get the most benefit from: a message queue absorbing bursts so the database is never hit with the raw, spiky write rate directly, batched/buffered writes instead of one write per event, and a storage engine actually built for high write throughput (a wide-column store like Cassandra, or a time-series database) rather than a general-purpose relational database straining against its write ceiling.
 
-QUESTION 3: Massive scale (>1M QPS)?
-└─ YES → NoSQL
-└─ NO → Continue
+Correctly identifying which category a given system falls into — and stating it out loud — is itself a meaningful part of a strong answer, since it justifies every caching/replication/sharding decision that follows from it.
 
-QUESTION 4: Unstructured/semi-structured data?
-└─ YES → Document store (MongoDB)
-└─ NO → Continue
+## Interview Questions and Answers
 
-QUESTION 5: Need full-text search?
-└─ YES → Elasticsearch
-└─ NO → Continue
+### 1. How do you actually decide between a relational and a document database for a new system, without just picking a favorite?
 
-QUESTION 6: Key-value access pattern only?
-└─ YES → Redis/Memcached
-└─ NO → SQL (probably)
+**Answer:** Ask whether the data has real cross-entity relationships/invariants that need enforcing (favors relational), and whether individual records' shape varies a lot or evolves unpredictably (favors document). A system with strict relational integrity needs (orders, payments, inventory) points toward relational regardless of scale; a system with wildly varying per-record attributes (a multi-category product catalog) points toward a document store even at modest scale.
 
-DECISION MATRIX:
-Use Case              Type        Database
-─────────────────────────────────────────
-User profiles         SQL         PostgreSQL
-Social graph          SQL         PostgreSQL
-Inventory             SQL         PostgreSQL
-User sessions         Key-value   Redis
-Cache                 Key-value   Redis
-Search                Search      Elasticsearch
-Timeline/Feed         Wide-col    Cassandra
-Logs/Events           Wide-col    Cassandra
-Product catalog       Document    MongoDB
-Preferences           Document    MongoDB
-```
+### 2. Why would you denormalize a like-count directly onto a post instead of always computing `COUNT(*)` on the likes table?
 
----
+**Answer:** Posts are read far more often than they're liked, so a `COUNT(*)` aggregation on every single read multiplies an expensive operation by the read volume. Storing a running counter on the post itself moves that cost to write time (a small increment per like) instead of read time, which is the correct trade for a read-to-write ratio this skewed.
 
-# PART 2: SQL DATABASE DESIGN
+### 3. What's the real risk of embedding a "reviews" array directly inside a product document in MongoDB?
 
-## Normalization
+**Answer:** Embedding works fine while the array stays small, but a popular product can accumulate thousands of reviews, and every read of that product then loads the entire array along with it — and MongoDB documents have a hard size ceiling that an ever-growing embedded array can eventually hit. The fix is embedding only a small summary (average rating, count) and referencing the full review list as its own paginated collection.
 
-```
-NORMALIZATION = Reduce data duplication
+### 4. What actually distinguishes a read-heavy system's scaling strategy from a write-heavy system's?
 
-FIRST NORMAL FORM (1NF):
-- Atomic values (no arrays in columns)
-- Single value per cell
+**Answer:** Read-heavy systems push cost from read time to write time or a background job — caching, read replicas, precomputed aggregations — because reads happen far more often and that's where the multiplier lives. Write-heavy systems instead need to absorb write bursts (a message queue), batch writes, and often a storage engine purpose-built for write throughput, because the bottleneck is the sheer rate of incoming writes, not the cost of any single read.
 
-❌ BAD:
-users:
-  id | name | hobbies
-  1  | John | [reading, coding]
+### 5. Why doesn't a single `posts(created_at)` index solve "generate my home feed"?
 
-✅ GOOD:
-users:
-  id | name
-  1  | John
+**Answer:** A global time-sorted index answers "what's newest across everyone," not "what's newest among the specific people I follow" — those are different queries with very different cost profiles once the follow graph is large. Real feed systems precompute a per-user feed ahead of time (a push/fan-out model) rather than trying to satisfy the personalized query directly against a single shared index at read time.
 
-hobbies:
-  user_id | hobby
-  1       | reading
-  1       | coding
+## Revision Checklist
 
-SECOND NORMAL FORM (2NF):
-- All 1NF requirements
-- Remove partial dependencies
-
-❌ BAD:
-orders:
-  order_id | user_id | user_name
-  1        | 1       | John
-
-✅ GOOD:
-orders:
-  order_id | user_id
-  1        | 1
-
-users:
-  user_id | name
-  1       | John
-
-THIRD NORMAL FORM (3NF):
-- All 2NF requirements
-- Remove transitive dependencies
-
-❌ BAD:
-orders:
-  order_id | user_id | city_id | city_name
-  1        | 1       | 5       | NYC
-
-✅ GOOD:
-orders:
-  order_id | user_id | city_id
-  1        | 1       | 5
-
-cities:
-  city_id | city_name
-  5       | NYC
-
-TRADE-OFF:
-More normalized = More JOIN queries, slower reads
-Less normalized (denormalized) = Faster reads, harder updates
-
-RULE: Normalize for writes, denormalize for reads (if needed)
-```
-
----
-
-## Indexing Strategy
-
-```
-INDEX = Speed up queries (like book index)
-
-WITHOUT INDEX:
-SELECT * FROM users WHERE email = 'john@example.com'
-→ Full table scan (slow if millions of users)
-
-WITH INDEX:
-CREATE INDEX idx_email ON users(email);
-SELECT * FROM users WHERE email = 'john@example.com'
-→ Direct lookup (fast!)
-
-TYPES OF INDEXES:
-
-1. PRIMARY KEY INDEX
-   - Automatically created
-   - Unique, not null
-   - One per table
-
-2. UNIQUE INDEX
-   CREATE UNIQUE INDEX idx_email ON users(email);
-   - Enforces uniqueness
-   - Good for: emails, usernames
-
-3. COMPOSITE INDEX
-   CREATE INDEX idx_user_order ON orders(user_id, created_at);
-   - Index on multiple columns
-   - Order matters!
-   - Good for: WHERE user_id = ? AND created_at > ?
-
-4. FULL TEXT INDEX
-   CREATE FULLTEXT INDEX idx_bio ON users(bio);
-   - For text search
-   - Good for: Search queries
-
-INDEXING STRATEGY:
-
-✅ CREATE INDEX ON:
-- Foreign keys (for JOINs)
-- Columns in WHERE clause
-- Columns in ORDER BY
-- Columns in GROUP BY
-- Columns used frequently
-
-❌ DON'T INDEX:
-- Columns with low cardinality (few unique values)
-- Large columns (TEXT, BLOB)
-- Columns rarely queried
-- Columns frequently updated
-
-TRADE-OFF:
-Indexes speed up reads but slow down writes (index update)
-
-MONITORING:
-EXPLAIN SELECT ... → See if index is used
-SLOW QUERY LOG → Find unindexed queries
-ANALYZE TABLE → Gather statistics
-```
-
----
-
-# PART 3: NOSQL DATABASE DESIGN
-
-## Document Store (MongoDB)
-
-```
-DESIGN PRINCIPLES:
-
-1. DENORMALIZE (embed related data)
-   Instead of JOIN:
-   
-   ❌ Normalized (multiple queries):
-   Get user → Get orders → Get items (3 queries)
-   
-   ✅ Denormalized (one query):
-   {
-     _id: 1,
-     name: "John",
-     orders: [
-       {
-         id: 1,
-         items: [
-           { product: "laptop", price: 1000 },
-           { product: "mouse", price: 30 }
-         ]
-       }
-     ]
-   }
-
-2. ONE DOCUMENT PER ACCESS PATTERN
-   If you always access user + orders together:
-   Store together in one document
-   
-   If you access orders separately:
-   Store in separate collection with reference
-
-3. LIMIT ARRAY SIZE
-   Avoid arrays that grow unbounded
-   
-   ❌ BAD:
-   {
-     user_id: 1,
-     comments: [1M comments] // Will grow forever!
-   }
-   
-   ✅ GOOD:
-   users: { user_id, name }
-   comments: { user_id, comment_text } // Separate collection
-
-SCHEMA DESIGN:
-
-Users:
-{
-  _id: 1,
-  name: "John",
-  email: "john@example.com",
-  created_at: 2023-01-01
-}
-
-Orders:
-{
-  _id: 1,
-  user_id: 1,
-  items: [
-    { product_id: 1, quantity: 2, price: 50 }
-  ],
-  total: 100,
-  created_at: 2023-02-01
-}
-
-INDEX:
-db.users.createIndex({ email: 1 })
-db.orders.createIndex({ user_id: 1, created_at: -1 })
-```
-
----
-
-## Key-Value Store (Redis)
-
-```
-USE CASES:
-- Session storage
-- Cache
-- Real-time counters
-- Leaderboards
-- Rate limiting
-- Message queue
-
-DESIGN PATTERNS:
-
-1. CACHING (Cache-aside)
-   get(key):
-     if key in cache: return value
-     else: value = db.get(key)
-          cache.set(key, value)
-          return value
-
-2. SESSION STORAGE
-   redis.set("session:abc123", {user_id: 1, role: admin})
-   redis.expire("session:abc123", 3600) // 1 hour
-
-3. COUNTERS
-   redis.incr("views:post:1") // Increment view count
-   redis.get("views:post:1") // Get current count
-
-4. LEADERBOARD
-   redis.zadd("leaderboard", 100, "user1")
-   redis.zadd("leaderboard", 200, "user2")
-   redis.zrevrange("leaderboard", 0, 9) // Top 10
-
-5. RATE LIMITING
-   redis.incr("rate:user:1:2023-02-01")
-   redis.expire("rate:user:1:2023-02-01", 86400)
-   if redis.get(...) > limit: reject()
-
-RETENTION:
-redis.expire(key, seconds) // Auto-delete after time
-redis.ttl(key) // Check time until deletion
-
-TRADE-OFF:
-- Ultra-fast (in-memory)
-- Limited query capabilities
-- Data must fit in RAM
-```
-
----
-
-# PART 4: READ/WRITE PATTERNS
-
-## Read-Heavy Systems
-
-```
-EXAMPLE: Twitter feed (read >> write)
-
-PATTERN:
-- 99% reads, 1% writes
-- Each read needs to be fast
-
-OPTIMIZATION:
-
-1. HEAVY CACHING
-   Get feed from cache (return in 10ms)
-   Invalidate on new tweet (write-time cost)
-
-2. DENORMALIZATION
-   Store tweet + user info together
-   Avoid JOINs
-
-3. READ REPLICAS
-   Master: Takes writes
-   Slaves: Handle reads (3-5 replicas)
-   Each slave can do 1000 QPS reads
-
-4. MATERIALIZED VIEWS
-   Pre-compute results
-   Update on writes
-
-ARCHITECTURE:
-User → Cache (Redis) → Hit? Return
-                     → Miss? Go to DB
-                              Update cache
-                              Return
-
-Database:
-Master (write) ← Replicate → Slaves (read-only)
-                                  ├─ Slave 1
-                                  ├─ Slave 2
-                                  └─ Slave 3
-```
-
----
-
-## Write-Heavy Systems
-
-```
-EXAMPLE: Analytics/logs (write >> read)
-
-PATTERN:
-- 99% writes, 1% reads
-- Each write needs to be fast
-
-OPTIMIZATION:
-
-1. BATCH WRITES
-   Don't write immediately
-   Collect in buffer, write in bulk
-   
-   Instead of: 1M writes/second
-   Do: Write 100k records per batch (10x faster)
-
-2. ASYNC WRITES
-   Write to message queue (fast)
-   Process asynchronously (slow)
-   User doesn't wait
-
-3. SHARDING BY TIME
-   Today's data → Shard 1
-   Yesterday's data → Shard 2
-   
-   Benefit: Easy to delete old data (drop shard)
-
-4. COLUMN STORE
-   Cassandra, HBase designed for write-heavy
-   Optimized for sequential writes
-
-ARCHITECTURE:
-High-write load
-       ↓
-Message Queue (Kafka)
-       ↓
-Batch Writer (100k per batch)
-       ↓
-Database Shards
-├─ Shard 1 (Time: 2023-02-01)
-├─ Shard 2 (Time: 2023-02-02)
-└─ Shard 3 (Time: 2023-02-03)
-```
-
----
-
-# PART 5: INTERVIEW QUESTIONS
-
-## Question 1: Design schema for social media (posts, comments, likes)
-
-**Answer:**
-```
-ENTITIES:
-- Users (id, name, email)
-- Posts (id, user_id, content, created_at)
-- Comments (id, post_id, user_id, content, created_at)
-- Likes (id, post_id, user_id, created_at)
-
-SQL SCHEMA:
-
-CREATE TABLE users (
-  id INT PRIMARY KEY,
-  name VARCHAR(100),
-  email VARCHAR(100),
-  created_at TIMESTAMP
-);
-
-CREATE TABLE posts (
-  id INT PRIMARY KEY,
-  user_id INT FOREIGN KEY,
-  content TEXT,
-  created_at TIMESTAMP,
-  INDEX(user_id),
-  INDEX(created_at)
-);
-
-CREATE TABLE comments (
-  id INT PRIMARY KEY,
-  post_id INT FOREIGN KEY,
-  user_id INT FOREIGN KEY,
-  content TEXT,
-  created_at TIMESTAMP,
-  INDEX(post_id, created_at),
-  INDEX(user_id)
-);
-
-CREATE TABLE likes (
-  id INT PRIMARY KEY,
-  post_id INT FOREIGN KEY,
-  user_id INT FOREIGN KEY,
-  created_at TIMESTAMP,
-  UNIQUE(post_id, user_id),
-  INDEX(user_id)
-);
-
-QUERIES:
-- Get user posts: SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC
-- Get post comments: SELECT * FROM comments WHERE post_id = ? ORDER BY created_at DESC
-- Get post likes: SELECT COUNT(*) FROM likes WHERE post_id = ?
-- Check if user liked: SELECT * FROM likes WHERE post_id = ? AND user_id = ?
-
-SCALING:
-- Add read replicas for read-heavy operations
-- Cache popular posts
-- Shard comments/likes by post_id if > 1M posts
-```
-
----
-
-## Question 2: SQL vs NoSQL - which to use?
-
-**Answer:**
-```
-USE SQL WHEN:
-✅ Structured data with clear schema
-✅ Complex queries with JOINs
-✅ ACID transactions needed
-✅ Data relationships important
-✅ Moderate scale (< 1M QPS writes)
-
-Examples: User accounts, orders, inventory
-
-USE NoSQL WHEN:
-✅ Massive scale (> 1M QPS)
-✅ Unstructured/semi-structured data
-✅ High write throughput
-✅ Simple access patterns
-✅ Schema flexibility needed
-
-Examples: Logs, events, feeds, sessions, cache
-
-HYBRID APPROACH (Best):
-- SQL for relational data (users, orders)
-- Cache (Redis) for frequently accessed data
-- NoSQL for high-volume data (logs, events)
-- Elasticsearch for searching
-- Data warehouse (Snowflake) for analytics
-```
-
----
-
-# SUMMARY: Database Design
-
-✅ **SQL:**
-- [ ] Know normalization
-- [ ] Know indexing strategy
-- [ ] Know when to denormalize
-- [ ] Understand schema design
-
-✅ **NoSQL:**
-- [ ] Know document store design
-- [ ] Know denormalization benefits
-- [ ] Know key-value patterns
-- [ ] Know limitations
-
-✅ **Read/Write Patterns:**
-- [ ] Know read-heavy optimization
-- [ ] Know write-heavy optimization
-- [ ] Understand caching strategy
-- [ ] Know replication vs sharding
-
----
-
-**Master database design—it's 15% of system design!**
+- [ ] Choose between relational, document, key-value, and wide-column stores for a stated real system, justified by the actual data shape and access pattern.
+- [ ] Design a schema for a social-feed-style feature, including where you'd deliberately denormalize and why.
+- [ ] Explain the embed-vs-reference decision for a document store, and the failure mode of getting it backwards.
+- [ ] Classify a given system as read-heavy or write-heavy and name the scaling techniques that follow from that classification.

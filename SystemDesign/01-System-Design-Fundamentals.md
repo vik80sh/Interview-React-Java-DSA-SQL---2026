@@ -1,642 +1,122 @@
 # System Design Fundamentals
-## Core Concepts, Trade-offs, CAP Theorem, ACID vs BASE
 
----
+System design interviews aren't testing whether you know what a load balancer is — they're testing whether you can navigate a genuinely open-ended problem with the same structure every time, ask the right clarifying questions, and defend a trade-off out loud. This file gives you that structure once, and every scenario file in this folder (05 through 08, plus the classics in 04) follows it exactly, so you walk into any "design X" question already knowing your first move.
 
-## TABLE OF CONTENTS
-1. System Design Overview
-2. CAP Theorem & Consistency Models
-3. ACID vs BASE
-4. Vertical vs Horizontal Scaling
-5. Design Principles & Trade-offs
-6. Common Interview Questions
+## 1. The Reusable Interview Template
 
----
+Use these eight steps, in this order, for every system design question you're ever asked. The value isn't in memorizing eight names — it's that following the same order every time means you never freeze on "what do I even say first."
 
-# PART 1: SYSTEM DESIGN OVERVIEW
+1. **Clarify requirements.** Split into functional ("what must the system do") and non-functional ("how well must it do it — scale, latency, availability, consistency"). Ask 3-5 real questions before designing anything; assuming instead of asking is the single most common way candidates lose points early.
+2. **Estimate scale.** Daily active users → queries per second → storage → bandwidth. These numbers aren't decoration — they determine every choice that follows (a system doing 50 QPS doesn't need sharding; one doing 500,000 QPS can't avoid it).
+3. **Define the core API and data model.** A handful of endpoints (or method signatures) and the 3-5 entities they operate on. This forces you to commit to what the system actually stores before you draw boxes.
+4. **Draw the high-level architecture.** Client → load balancer → services → cache → database → (queue, CDN — Content Delivery Network, covered in depth in [file 02](02-Scalability-Load-Balancing.md#2-content-delivery-networks-cdns--moving-data-physically-closer-to-users) — search index as needed). Narrate it as you draw — this is the "boxes and arrows" phase interviewers expect to see.
+5. **Deep-dive the 1-2 genuinely hard backend parts.** This is where the interview is actually won or lost — every system has a specific problem that makes it interesting (Twitter's feed fanout, Uber's geospatial matching, a file upload's resumability). Spend most of your remaining time here, not re-explaining the parts that are the same in every system.
+6. **Address the frontend/client perspective.** Most candidates only design the backend and get caught flat when asked "and what does the client actually do?" — see the frontend checklist below; this is a genuinely separate, scoreable part of the answer, not an afterthought.
+7. **Identify bottlenecks and their trade-offs.** Name what breaks first as load grows, and the fix's actual cost (more consistency lag, more operational complexity, more money).
+8. **Summarize the trade-off in one sentence.** "This design favors availability over strict consistency because a stale like-count is fine, but a failed feed load isn't." A crisp closing line is what a strong candidate says that a mediocre one doesn't.
 
-## What is System Design?
+Every scenario file in this folder is organized around exactly these eight headers. Once you've done this five or six times, you stop thinking about the template consciously — that's the actual goal.
 
-```
-System Design = Designing architecture of large-scale systems
+### The frontend checklist (step 6, every time)
 
-Focuses on:
-- How to handle millions of users
-- How to scale to billions of requests
-- How to maintain reliability & performance
-- How to design for failure
+A frontend engineer asked a system design question is very often specifically being evaluated on whether they cover this step at all, since many backend-leaning candidates skip it entirely. Run through the same short checklist every time:
 
-Key Metrics:
-- Latency (response time)
-- Throughput (requests/sec)
-- Availability (uptime %)
-- Scalability (handle growth)
-- Consistency (data correctness)
-```
+- **Rendering strategy** — does this page/screen need CSR, SSR, or SSG (see the [SSR/CSR/Next.js guide](../Frontend/React/11-SSR-CSR-and-Nextjs.md) for the full trade-off), and why for this specific screen?
+- **Real-time channel, if any** — WebSocket (bidirectional, persistent — chat, collaborative editing), Server-Sent Events (one-directional server-to-client — live notifications, a live feed), or plain polling (simplest, acceptable when near-real-time is fine)? Name which one and why.
+- **Optimistic UI** — does the client update immediately and reconcile with the server after (a like button, a sent chat message), or must it wait for server confirmation (a payment)? This is almost always a deliberate, statable choice, not an accident.
+- **Client-side state and caching** — what lives in local component state, what's fetched and cached (React Query/SWR-style), and what's shared global state (see the [State Management guide](../Frontend/React/08-State-Management-Context-Redux-Zustand.md))?
+- **Failure/offline handling** — what does the UI do when a request fails or the network drops mid-action (a queued retry, a visible error, a locally-persisted draft)?
 
----
+## 2. Capacity Estimation — the Formulas You Actually Reuse Every Time
 
-## Interview Structure (45-60 minutes)
-
-```
-STEP 1: REQUIREMENTS (5-10 min)
-├─ Functional: What system should do
-├─ Non-functional: Performance, scale, availability
-└─ Ask clarifying questions!
-
-STEP 2: ESTIMATION (5-10 min)
-├─ Users per day
-├─ Requests per second (QPS)
-├─ Data storage needed
-└─ Bandwidth requirements
-
-STEP 3: HIGH-LEVEL DESIGN (10-15 min)
-├─ Architecture diagram
-├─ Main components
-└─ Data flow
-
-STEP 4: DEEP DIVE (15-20 min)
-├─ Specific components
-├─ Trade-offs & decisions
-└─ Bottlenecks & solutions
-
-STEP 5: BOTTLENECKS & OPTIMIZATION (5-10 min)
-├─ Identify issues
-├─ Propose solutions
-└─ Discuss trade-offs
-
-KEY RULE: Think out loud! Interviewer wants to see your thought process.
+```text
+Daily Active Users (DAU)   = total registered users × activity rate
+Queries Per Second (QPS)   = DAU × actions per user per day / 86,400 seconds
+Peak QPS                   = average QPS × 2-3 (peak-hour multiplier)
+Storage per year           = DAU × data per user per day × 365
+Bandwidth                  = peak QPS × average request/response size
+Cache size (80/20 rule)    = total hot dataset ≈ 20% of total data
 ```
 
----
+Worked example: a ride-hailing app with 100M registered users, 20% daily activity, and each active user triggering ~5 location-relevant requests per minute while using the app for ~15 minutes a day.
 
-## Estimation Formulas
+- DAU = 100M × 20% = 20M
+- Requests per DAU per day ≈ 5/min × 15 min = 75
+- Average QPS = 20M × 75 / 86,400 ≈ 17,400 QPS
+- Peak QPS (3x for rush hour) ≈ 52,000 QPS
 
-```
-DAILY ACTIVE USERS (DAU): Total users * activity rate
-Example: 1 million users * 10% = 100k DAU
+The exact numbers matter less than showing you can derive them live and that you understand *why* peak QPS — not average — is what you actually design capacity for. A system provisioned for the average will fall over precisely when it matters most.
 
-QUERIES PER SECOND (QPS): DAU * queries per user per day / 86400
-Example: 100k * 100 queries / 86400 ≈ 115 QPS
+## 3. CAP Theorem — What It Actually Constrains
 
-DATABASE SIZE: DAU * data per user * days retained
-Example: 100k * 1KB * 365 = 36.5 GB
+In a distributed system, you cannot simultaneously guarantee all three of:
 
-BANDWIDTH: QPS * avg request/response size
-Example: 115 QPS * 5KB = 575 KB/sec ≈ 43 GB/day
+- **Consistency** — every node returns the same, most-recent value for the same read.
+- **Availability** — every request gets a response (even if that data might be stale).
+- **Partition tolerance** — the system keeps working when a network partition splits nodes from each other.
 
-CACHE SIZE: Frequently accessed data (80/20 rule)
-Example: Total data * 20% = 7.3 GB
+The practical reading: network partitions **will** happen in any real distributed system, so the actual choice is between **CP** (refuse to answer during a partition rather than risk returning stale/wrong data — traditional relational databases with synchronous replication) and **AP** (keep answering during a partition, accepting that some nodes might briefly disagree — DynamoDB, Cassandra). Nothing forces this choice application-wide: a ride-hailing app can be CP for payments and AP for driver location updates in the very same system, because those two features have genuinely different tolerance for staleness.
 
-Common Estimates:
-- Twitter: 300M DAU, 5k QPS at peak
-- Facebook: 2B DAU, 50k QPS at peak
-- Netflix: 200M users, 1M QPS at peak (reads)
-```
+| System aspect | Choose CP when... | Choose AP when... |
+|---|---|---|
+| Bank account balance | A stale balance could mean double-spending | — |
+| Social media like count | — | A count off by a few for a moment is invisible to users |
+| Inventory count at checkout | Overselling a sold-out item is a real business problem | — |
+| Driver's live GPS pin | — | A few-second-stale pin is still useful, and always-available matters more |
 
----
+## 4. ACID vs BASE — Two Different Bets on Where Correctness Lives
 
-# PART 2: CAP THEOREM
+**ACID** (Atomicity, Consistency, Isolation, Durability — the full breakdown, with real transfer-failure examples for each letter, lives in the [Database ACID guide](../Backend/Database/04-ACID-Properties-and-Transactions.md)) is the traditional relational database's bet: the database itself enforces correctness through transactions and constraints, at the cost of being harder to scale horizontally.
 
-## The CAP Theorem
+**BASE** (Basically Available, Soft state, Eventually consistent) is the bet most horizontally-scaled NoSQL systems make instead: the database stays available and fast even during a partition, and it's the *application's* job to tolerate or reconcile temporary disagreement between replicas. Reach for it deliberately — for data where staleness is genuinely tolerable (a follower count, a "last seen online" timestamp) — not as a default just because it scales further.
 
-```
-CAP = Consistency, Availability, Partition tolerance
+## 5. Vertical vs Horizontal Scaling
 
-Definition:
-- Consistency: All nodes see same data at same time
-- Availability: System always responds
-- Partition tolerance: System works when network partitions occur
+**Vertical (scale up)** means a bigger machine — more CPU, more RAM. It's simpler (nothing to coordinate) and has lower latency (no extra network hop), but it has a hard ceiling (you can't buy an infinitely large machine) and remains a single point of failure. It's the right first move for a database before reaching for the real complexity of sharding.
 
-THE RULE: In case of network partition, choose CP or AP
-(You CAN'T have all three in distributed system)
+**Horizontal (scale out)** means more machines behind a load balancer. It scales further and removes the single point of failure, but introduces real coordination cost — session handling, cache coherency, and eventually a database that can't just be one bigger box either. Most real systems scale their stateless web/API tier horizontally almost immediately (it's cheap and low-risk) and delay horizontally scaling the database (sharding) as long as possible, because sharding is where genuine complexity — cross-shard joins, cross-shard transactions, re-sharding — shows up.
 
-                    CAP TRIANGLE
-                    /         \
-                   /           \
-                  C ─────────── A
-                   \           /
-                    \         /
-                      P ───────
+## 6. The Three-Way Trade-off: Consistency, Availability, Latency
 
-When network partition happens (P is always possible):
-- CP (Consistency + Partition): Refuse some requests (like PostgreSQL with strong consistency)
-- AP (Availability + Partition): Accept all requests, data might be stale (like DynamoDB)
-```
+You can't maximize all three simultaneously, and naming which two you're prioritizing — out loud, with a reason — is exactly what separates a strong system design answer from a list of technology names:
 
----
+| Priority | Real system | Why |
+|---|---|---|
+| Consistency > Availability > Latency | Banking, payments | Money appearing twice or vanishing is worse than the system being briefly unavailable |
+| Availability > Latency > Consistency | Social media feeds | Always-on matters more than every user seeing the exact same feed instantly |
+| Latency > Availability > Consistency | Search, autocomplete | Users tolerate a slightly stale index; they don't tolerate a slow response |
 
-## Consistency Models
+## Interview Questions and Answers
 
-```
-STRONG CONSISTENCY (CP):
-├─ All reads see latest write
-├─ Good for: Banking, critical data
-└─ Trade-off: Slower, less available
-Example: PostgreSQL with synchronous replication
+### 1. Explain the CAP theorem, and why "choose 2 of 3" is a slight oversimplification.
 
-EVENTUAL CONSISTENCY (AP):
-├─ Reads might see stale data
-├─ Eventually all nodes converge
-├─ Good for: Social media, caching
-└─ Trade-off: Complex conflict resolution
-Example: DynamoDB, Cassandra
+**Answer:** CAP says a distributed system can't simultaneously guarantee consistency, availability, and partition tolerance. Since network partitions are a real, unavoidable fact of distributed systems, the practical choice is between CP (refuse some requests during a partition to protect consistency) and AP (keep answering, accepting temporary disagreement). It's a slight oversimplification because the choice doesn't have to be made once for the whole system — different features within the same application can make different CP/AP choices based on their own tolerance for staleness.
 
-CAUSAL CONSISTENCY:
-├─ Related operations maintain order
-├─ Unrelated operations can be concurrent
-└─ Middle ground between strong & eventual
-Example: Google Cloud Datastore
+### 2. When would you choose ACID over BASE, and vice versa?
 
-MONOTONIC READ CONSISTENCY:
-├─ Once you read value, future reads won't see older values
-└─ Good for: User sessions
-Example: Redis with same replica
+**Answer:** ACID when a specific piece of data has a real invariant that must never be violated even under concurrent access — an account balance, an inventory count at checkout. BASE when a system needs to stay available and fast under massive horizontal scale, and the specific data involved can tolerate being briefly stale — a follower count, a view counter, a cached recommendation list.
 
-READ-YOUR-WRITE:
-├─ Writes immediately visible to same user
-└─ Good for: User experience
-Example: Master-slave with special handling for same user
-```
+### 3. How do you estimate the QPS a system needs to handle, and why use peak instead of average?
 
----
+**Answer:** Multiply daily active users by actions per user per day, divide by seconds in a day to get average QPS, then multiply by a peak factor (commonly 2-3x) to account for non-uniform traffic across the day. A system sized for the average will fail exactly when it matters most — during the actual peak — so real capacity planning targets peak QPS with an additional safety margin, not the average.
 
-# PART 3: ACID VS BASE
+### 4. Vertical vs horizontal scaling — how do you decide which to reach for first?
 
-## ACID (Traditional Databases)
+**Answer:** Vertical scaling first for anything stateful and hard to distribute, like a single database, because it's simpler and has no coordination cost, up until its ceiling. Horizontal scaling for anything stateless that needs to scale further than one machine can handle, like web/API servers, since the coordination cost (load balancing, no shared local state) is manageable and the benefit (near-unlimited scaling, no single point of failure) is worth it early.
 
-```
-ACID = Atomicity, Consistency, Isolation, Durability
+### 5. Why does the "right" trade-off between consistency, availability, and latency depend entirely on the system?
 
-Atomicity: Transaction all-or-nothing
-├─ All operations succeed or all fail
-└─ No partial updates
-Example: Transfer money - debit & credit both happen or neither
+**Answer:** Each of the three costs something different, and different systems have genuinely different tolerances for those costs — a bank cannot tolerate inconsistent balances even briefly, while a social feed can tolerate a few seconds of staleness far more easily than it can tolerate being unavailable. There's no universally "correct" choice; there's only the choice that matches what the specific system's users actually need.
 
-Consistency: Data integrity
-├─ Database moves from valid state to valid state
-├─ Constraints always satisfied
-└─ Example: Foreign key constraints
+### 6. What's the first thing you should do when given an open-ended "design X" prompt?
 
-Isolation: Concurrent transactions don't interfere
-├─ Transaction sees consistent snapshot
-├─ Prevents dirty reads, phantom reads
-└─ Different isolation levels (READ_UNCOMMITTED to SERIALIZABLE)
+**Answer:** Ask clarifying questions to pin down functional and non-functional requirements — scale, latency expectations, consistency needs, and which features actually matter for this conversation — before drawing anything. Designing before clarifying risks spending the whole interview solving a version of the problem the interviewer didn't actually ask about.
 
-Durability: Once committed, stays committed
-├─ Data survives hardware failures
-├─ Write to disk before returning success
-└─ Can tolerate power loss
+## Revision Checklist
 
-DATABASES: PostgreSQL, MySQL, Oracle, SQL Server
-GOOD FOR: Financial systems, critical data
-TRADE-OFF: Slower, harder to scale horizontally
-```
-
----
-
-## BASE (NoSQL Databases)
-
-```
-BASE = Basically Available, Soft state, Eventually consistent
-
-Basically Available:
-├─ System always available
-├─ Might return stale data
-└─ Trade-off: Weak consistency
-
-Soft State:
-├─ State might change without user input
-├─ Data replicating between nodes
-└─ Temporary inconsistency allowed
-
-Eventually Consistent:
-├─ All replicas converge eventually
-├─ Might take seconds/minutes
-└─ Acceptable for non-critical data
-
-DATABASES: DynamoDB, MongoDB, Cassandra, Redis
-GOOD FOR: High-scale systems, high availability needed
-TRADE-OFF: Complex application logic, eventual consistency
-```
-
----
-
-## ACID vs BASE Comparison
-
-```
-                ACID              BASE
-─────────────────────────────────────────
-Consistency     Strong            Eventual
-Availability    Lower             Higher
-Scalability     Vertical          Horizontal
-Transactions    Full support      Limited
-Speed           Slower            Faster
-Use case        Banking           Social media
-
-WHEN TO USE ACID:
-- Financial transactions
-- Medical records
-- Legal documents
-- Critical business data
-
-WHEN TO USE BASE:
-- Social media feeds
-- User timelines
-- Analytics
-- Caching layers
-- High-traffic APIs
-```
-
----
-
-# PART 4: VERTICAL VS HORIZONTAL SCALING
-
-## Vertical Scaling (Scale Up)
-
-```
-Adding more power to single machine
-
-EXAMPLE:
-Server 1: 4 cores, 8GB RAM → 8 cores, 32GB RAM
-
-PROS:
-- Simpler (no coordination needed)
-- Works for monoliths
-- Lower latency
-
-CONS:
-- Expensive (more cores = exponentially higher cost)
-- Limited (can't add cores infinitely)
-- Single point of failure
-- Must restart server
-
-GOOD FOR:
-- Databases
-- Cache servers
-- When load < single machine capacity
-
-TYPICAL LIMITS:
-- CPU: 64+ cores enough for most systems
-- RAM: 512 GB sufficient
-- Cost: AWS m5.4xlarge ≈ $1000/month
-
-EXAMPLE: When to scale up:
-1 server, 100% CPU utilization
-→ Add more cores
-→ Now 50% utilization
-→ Can handle 2x traffic
-```
-
----
-
-## Horizontal Scaling (Scale Out)
-
-```
-Adding more machines (servers)
-
-EXAMPLE:
-1 server handling 1000 QPS → 10 servers handling 100 QPS each
-
-PROS:
-- Cheap (buy many cheap machines)
-- Unlimited scalability
-- No single point of failure
-- Can scale dynamically
-- Load distribution
-
-CONS:
-- Complex (coordination, consistency, networking)
-- Higher latency (multiple hops)
-- Database bottleneck
-- Operational complexity
-
-GOOD FOR:
-- Web servers
-- API servers
-- When traffic >> single machine
-
-CHALLENGES:
-1. Load balancing (distribute traffic)
-2. Session management (sticky sessions)
-3. Database sync
-4. Cache coherency
-
-TYPICAL PATTERN:
-Load Balancer
-├─ Server 1
-├─ Server 2
-├─ Server 3
-└─ Database (bottleneck!)
-```
-
----
-
-## Hybrid Approach (Recommended)
-
-```
-Use BOTH vertical AND horizontal scaling
-
-EXAMPLE: Twitter-like system
-Scale web servers: Horizontally (easy to add)
-Scale database: Vertically (first), then sharding (hard)
-Scale cache: Horizontally (Redis cluster)
-
-COST-BENEFIT:
-- Vertical scaling: Faster, easier, until ~8-16 cores
-- Horizontal scaling: Slower, harder, but unlimited
-
-STRATEGY:
-1. Start with single server (vertical)
-2. At capacity, add load balancer + 2 servers (horizontal)
-3. At capacity, vertical scale database
-4. At capacity, shard database (horizontal)
-5. At capacity, add cache layer
-6. Continue horizontally for web/cache layers
-```
-
----
-
-# PART 5: DESIGN PRINCIPLES & TRADE-OFFS
-
-## Latency vs Throughput
-
-```
-LATENCY = Time for single request to complete
-THROUGHPUT = Number of requests completed per second
-
-Example 1: 100ms latency, 10 QPS throughput
-├─ Slow response time
-└─ Can't handle much traffic
-
-Example 2: 10ms latency, 100 QPS throughput
-├─ Fast response
-└─ Can handle more traffic
-
-Usually: Add parallelism increases throughput but not latency
-├─ 1 server: 10ms latency, 100 QPS
-├─ 10 servers: 10ms latency, 1000 QPS (better throughput)
-├─ But still 10ms per request (same latency)
-
-In interviews: Mention both!
-"This design prioritizes throughput over latency"
-```
-
----
-
-## Consistency vs Availability vs Latency
-
-```
-TRADE-OFF TRIANGLE:
-
-                 High Consistency
-                        /\
-                       /  \
-                      /    \
-                     /      \
-                    /        \
-                   /          \
-       Low Latency /            \ Low Availability
-                  /              \
-                 /________________\
-           Availability      Consistency
-
-Can't optimize all three!
-
-EXAMPLES:
-
-High Consistency + Low Latency = Low Availability
-├─ Synchronous replication
-├─ Strong transactions
-└─ Trade-off: If master fails, system unavailable
-Database: PostgreSQL with sync replication
-
-Low Consistency + Low Latency = High Availability
-├─ Eventual consistency
-├─ Async replication
-└─ Trade-off: Might see stale data
-Database: DynamoDB
-
-Low Latency + High Availability = Weak Consistency
-├─ Cache heavily
-├─ Accept stale data
-└─ Trade-off: Data might be inconsistent
-Example: Caching layer (Redis)
-
-CHOOSE BASED ON USE CASE:
-- Banking: Consistency > Availability
-- Social media: Availability > Consistency
-- Search: Low latency > Consistency
-```
-
----
-
-## Data Consistency vs Scalability
-
-```
-PROBLEM: As you scale, consistency becomes harder
-
-SCENARIOS:
-
-1. SINGLE DATABASE (Consistent but not scalable)
-   Client → Load Balancer → Many Servers → Single Database
-   
-   Problem: Database is bottleneck
-   Example: All users write to one PostgreSQL
-   Limit: ~10k QPS
-
-2. REPLICATED DATABASE (More scalable, consistency hard)
-   Client → LB → Servers
-                    ├─ Master (writes)
-                    ├─ Slave 1 (reads)
-                    └─ Slave 2 (reads)
-   
-   Issue: Replication lag (eventual consistency)
-   Example: 1 master, 3 slaves
-   Benefit: ~30k QPS (write limited by master)
-
-3. SHARDED DATABASE (Maximum scalability, consistency complex)
-   Client → LB → Servers
-                    ├─ Shard 1 (User 1-1M)
-                    ├─ Shard 2 (User 1M-2M)
-                    └─ Shard 3 (User 2M-3M)
-   
-   Benefit: Linear scaling (3 shards = 3x capacity)
-   Trade-off: Complex joins, transactions
-
-RULE: As you scale, you trade consistency for performance
-```
-
----
-
-# PART 6: INTERVIEW QUESTIONS
-
-## Question 1: Explain CAP Theorem
-
-**Answer:**
-```
-CAP theorem states you can pick 2 out of 3 in distributed system:
-
-1. Consistency - All nodes see same data
-2. Availability - System always available
-3. Partition tolerance - Survives network partitions
-
-In practice, network partition (P) always possible, so:
-- CP (strong consistency): PostgreSQL, traditional databases
-- AP (high availability): NoSQL like DynamoDB, Cassandra
-
-Choice depends on application:
-- Banking: Need CP (strong consistency)
-- Social media: Need AP (high availability)
-```
-
----
-
-## Question 2: When to use SQL vs NoSQL?
-
-**Answer:**
-```
-USE SQL WHEN:
-- Structured data with schema
-- Need ACID transactions
-- Complex queries with JOINs
-- Relationships between data (banking, inventory)
-- Low to medium scale
-
-Examples: PostgreSQL, MySQL, Oracle
-
-USE NoSQL WHEN:
-- Unstructured/semi-structured data
-- Massive scale (>1M QPS)
-- High availability needed
-- Simple access patterns
-- Fast reads/writes
-- Data consistency not critical
-
-Examples: MongoDB (document), DynamoDB (key-value), 
-          Cassandra (wide column), Redis (cache)
-
-HYBRID: Use both!
-- SQL for relational data (users, orders)
-- NoSQL for high-volume data (logs, events, cache)
-```
-
----
-
-## Question 3: How to estimate system capacity?
-
-**Answer:**
-```
-1. CALCULATE DAU (Daily Active Users)
-   Total users × activity rate
-   Example: 100M users × 1% = 1M DAU
-
-2. CALCULATE QPS (Queries Per Second)
-   DAU × operations per user per day / 86400
-   Example: 1M × 100 / 86400 ≈ 1157 QPS
-
-3. PEAK QPS
-   Usually 2-3x average during peak hours
-   Example: 1157 × 3 = 3471 QPS at peak
-
-4. STORAGE NEEDED
-   DAU × data per user × retention days
-   Example: 1M × 1KB × 365 = 365 GB
-
-5. BANDWIDTH
-   Peak QPS × avg request size
-   Example: 3471 × 5KB = 17 MB/sec
-
-THEN: Design to handle peak QPS with 2x buffer
-      3471 × 2 = 7000 QPS capacity needed
-```
-
----
-
-## Question 4: Vertical vs Horizontal scaling - Which to use?
-
-**Answer:**
-```
-VERTICAL SCALING (Add power to single machine):
-- Simpler, cheaper initially
-- Use first: 1-8 cores, up to 32GB RAM
-- Limit: Can't add infinitely (expensive)
-- Single point of failure
-
-HORIZONTAL SCALING (Add more machines):
-- Complex (need load balancer, coordination)
-- Use when single machine at capacity
-- Can scale infinitely
-- Better availability
-
-STRATEGY:
-1. Start with 1 server
-2. Vertical scale to 8 cores, 32GB RAM
-3. Add load balancer + 2-3 more servers
-4. Horizontal scale web/API servers easily
-5. For database: Vertical first, then sharding (hard)
-6. For cache: Horizontal (Redis cluster)
-
-RULE: Vertical until expensive, then horizontal
-```
-
----
-
-## Question 5: Design trade-offs - What's most important?
-
-**Answer:**
-```
-CONSISTENCY vs AVAILABILITY vs LATENCY
-
-BANKING SYSTEM:
-Priority: Consistency >> Availability > Latency
-Why: Money can't disappear or duplicate
-Trade-off: If system down, okay. But data must be consistent.
-
-SOCIAL MEDIA (Twitter):
-Priority: Availability > Latency > Consistency
-Why: Users want always-on system, eventual consistency okay
-Trade-off: Tweet might take few seconds to appear for all users
-
-E-COMMERCE:
-Priority: Consistency > Availability ≥ Latency
-Why: Inventory must be accurate, avoid overselling
-Trade-off: Might show "out of stock" temporarily to ensure consistency
-
-SEARCH ENGINE:
-Priority: Latency > Availability > Consistency
-Why: Users expect fast results, can tolerate stale data
-Trade-off: Search results might be 1 hour old, that's okay
-
-KEY: Understand trade-offs and prioritize based on use case!
-```
-
----
-
-# SUMMARY: System Design Fundamentals
-
-✅ **Core Concepts:**
-- [ ] Understand CAP theorem
-- [ ] Know CP vs AP systems
-- [ ] Know ACID vs BASE
-- [ ] Understand consistency models
-
-✅ **Scaling:**
-- [ ] Difference between vertical & horizontal
-- [ ] When to use each
-- [ ] Capacity estimation
-
-✅ **Trade-offs:**
-- [ ] Consistency vs Availability vs Latency
-- [ ] Data consistency vs scalability
-- [ ] SQL vs NoSQL
-
-✅ **Interview Skills:**
-- [ ] Can estimate system requirements
-- [ ] Can think about trade-offs
-- [ ] Can explain design decisions
-- [ ] Can think out loud
-
----
-
-**Master fundamentals—they apply to EVERY system design!**
+- [ ] Recite the 7-step template from memory and explain why the order matters.
+- [ ] Derive DAU → QPS → peak QPS → storage → bandwidth for a made-up scale, live, without notes.
+- [ ] Explain CAP theorem's practical CP-vs-AP framing, and give a real feature-level example of choosing differently within the same app.
+- [ ] Explain ACID vs BASE with a real example of when each is the right bet.
+- [ ] Justify vertical vs horizontal scaling for a stated real component (a database vs a web server tier).
+- [ ] State a consistency/availability/latency trade-off in one clear sentence for at least three different real systems.

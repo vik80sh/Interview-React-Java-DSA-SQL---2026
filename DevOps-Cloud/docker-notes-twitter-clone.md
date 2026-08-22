@@ -274,3 +274,27 @@ Why `depends_on` isn't enough for DB readiness: Postgres container is "running" 
 ---
 
 **Summary:** Docker packages each service (Postgres, Spring Boot backend, React+Nginx frontend) into isolated, reproducible containers; multi-stage Dockerfiles keep images small; Docker Compose ties the independently-built repos together via a shared network for local dev, while CI/CD in each repo pushes standalone images for production.
+
+---
+
+## 6. Basic Interview Questions (what a full-stack dev should be able to answer)
+
+### Q1: What's the actual difference between an image and a container?
+
+**Answer:** An image is the read-only blueprint (built once from a Dockerfile); a container is a running instance of that image. The same image can be started as many separate, independent containers at once — it's the difference between a class and an object.
+
+### Q2: Why use a multi-stage Dockerfile instead of one stage?
+
+**Answer:** The build tools (Maven, npm) and source code are only needed to *produce* the final artifact (a JAR, a bundled JS app) — they don't need to ship in the image that actually runs in production. A multi-stage build compiles in one stage and copies only the finished output into a lean final stage, which is why the Twitter-clone backend image above ends up as just a JRE + a JAR, not a full Maven+JDK toolchain.
+
+### Q3: What does Docker Compose actually solve that plain `docker run` doesn't?
+
+**Answer:** A real app is usually several containers (a database, a backend, a frontend) that need to start together, share a network, and know about each other by name. Compose defines all of that once in a YAML file instead of a long sequence of manually-run `docker run` commands with matching network/port flags typed out by hand every time.
+
+### Q4: Why can't two containers reach each other using `localhost`?
+
+**Answer:** Each container has its own isolated network namespace, so `localhost` inside a container refers only to that container itself, not the host machine or any other container. Containers on the same Docker network reach each other by service/container **name** instead (e.g., a backend connecting to `jdbc:postgresql://db:5432/...`, where `db` is the database service's name in `docker-compose.yml`).
+
+### Q5: What's a Docker volume for, and why does removing a container lose data without one?
+
+**Answer:** A container's own writable layer is deleted the moment the container is removed, so anything written there (like a database's data files) vanishes with it. A volume is storage that lives outside that writable layer, on the host, so the data survives even after the container that used it is stopped or removed — exactly why the Postgres service above mounts `db-data:/var/lib/postgresql/data`.
