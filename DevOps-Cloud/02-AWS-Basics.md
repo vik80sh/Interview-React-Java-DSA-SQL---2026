@@ -1,739 +1,186 @@
-# AWS Basics
-## EC2, S3, RDS, Lambda, VPC, Load Balancer, CloudFront
+# AWS Basics (Beginner-Friendly)
+
+This file follows the same approach as [Spring Boot Fundamentals](../Backend/Springboot/01-Spring-Boot-Fundamentals.md): every term is introduced by first showing the concrete problem it solves, then given a name.
+
+Running example: **PageTurner**, an online bookstore whose backend is a Spring Boot app.
 
 ---
 
-## TABLE OF CONTENTS
-1. AWS Fundamentals
-2. Core AWS Services
-3. Networking & Security
-4. Common Architectures
-5. Interview Questions
+## 1. The Problem: One Server, One Point of Failure
+
+PageTurner starts on one rented server. Then: it crashes at 2 AM (disk full, no one watching), a sale-day traffic spike overwhelms it, or its one datacenter has an outage — and PageTurner is just down, with no quick fix.
+
+**Cloud computing** is the fix: instead of owning hardware, you rent servers/storage/databases from a provider that already runs thousands of machines worldwide, and provision or destroy capacity in minutes. **AWS (Amazon Web Services)** is the largest such provider (Azure and Google Cloud are the other two you'll hear about). It offers 200+ services; this file covers the handful a full-stack developer actually touches: a server (EC2), file storage (S3), a managed database (RDS), on-demand code execution (Lambda), networking (VPC), traffic distribution (Load Balancer), and content delivery (CloudFront).
+
+Quick vocabulary: **IaaS** (Infrastructure as a Service — you manage the OS, e.g. EC2), **PaaS** (Platform as a Service — you just run code, e.g. Lambda), **SaaS** (Software as a Service — you use finished software, e.g. Gmail).
+
+**Regions** are geographic AWS locations (`us-east-1`, `ap-southeast-1`, 30+ worldwide) — pick one near your users for lower latency. Each region has 2–4 **Availability Zones (AZs)** — physically separate datacenters with independent power. Spreading your app across AZs means one datacenter failing doesn't take you down; a backup in a second region protects against a whole region failing (rare, but see section 10).
 
 ---
 
-# PART 1: AWS FUNDAMENTALS
+## 2. EC2: Renting a Virtual Machine by the Hour
 
-## What is AWS?
+**EC2 (Elastic Compute Cloud)** is a virtual machine you rent by the hour, launched in minutes instead of bought and racked over weeks.
 
-```
-AWS = Amazon Web Services (Cloud Platform)
+**Instance types** (pick CPU/RAM to fit the job): `t3.micro` (1 vCPU/1GB, free tier), `t3.medium` (2 vCPU/4GB, ~$34/mo), `m5.large` (2 vCPU/8GB, ~$96/mo), plus `c5`/`r5` families for CPU- or memory-heavy work.
 
-Cloud Computing:
-├─ IaaS (Infrastructure as a Service)
-│  └─ EC2: Rent virtual machines
-├─ PaaS (Platform as a Service)
-│  └─ Elastic Beanstalk: Deploy applications
-└─ SaaS (Software as a Service)
-   └─ Gmail, Office 365
+**Pricing models:** On-Demand (pay per hour, no commitment, most expensive), Spot (bid for spare capacity, ~70% cheaper, can be reclaimed on short notice — never for your only server), Reserved (1–3 year commitment, 40–60% off), Savings Plan (similar discount, more flexible than Reserved).
 
-AWS MARKET SHARE:
-├─ 32% (leader)
-├─ Azure: 23%
-├─ Google Cloud: 10%
-└─ Others: 35%
+**EBS (Elastic Block Store)** is a virtual disk that attaches to an instance and survives independently of it (~$0.10/GB/month) — local disk on the instance itself disappears when the instance is terminated.
 
-Why AWS?
-✅ Largest market share
-✅ Most services (200+)
-✅ Mature & reliable
-✅ Global infrastructure
-✅ Pay-as-you-go pricing
-```
+**Launching:** Console → EC2 → Launch Instance → pick an **AMI (Amazon Machine Image)**, a template with an OS pre-installed → pick instance type → attach EBS and a security group (section 6) → launch → `ssh -i key.pem ec2-user@<ip>`.
+
+One instance still doesn't scale itself for a sale-day spike. **Auto Scaling** fixes that: define a group of identical instances and a rule ("CPU > 70% → launch one more; CPU < 30% → terminate one"), and AWS adjusts capacity automatically instead of someone manually launching servers at 2 AM.
 
 ---
 
-## AWS Regions & Availability Zones
+## 3. S3: Where Do Uploaded Files Live?
 
+**Scenario:** PageTurner lets users upload profile pictures and book covers. Saving them to the EC2 instance's own disk runs out of space, and once you have multiple instances behind a load balancer, a file uploaded to instance A simply doesn't exist on instance B.
+
+**S3 (Simple Storage Service)** is object (file) storage that lives independently of any EC2 instance, reachable by every server at the same path:
+
+```text
+PUT s3://pageturner-uploads/covers/isbn-9780134685991.jpg
+GET s3://pageturner-uploads/covers/isbn-9780134685991.jpg
 ```
-REGIONS: Geographic locations (30+ worldwide)
-├─ us-east-1 (Virginia)
-├─ us-west-2 (Oregon)
-├─ eu-west-1 (Ireland)
-├─ ap-southeast-1 (Singapore)
-└─ More in every continent
 
-AVAILABILITY ZONES: Multiple datacenters per region
-├─ us-east-1a
-├─ us-east-1b
-├─ us-east-1c
-└─ 2-4 per region
+You store objects in a **bucket** (globally unique name). AWS advertises 99.999999999% durability (replicated across facilities) and 99.99% availability.
 
-BENEFITS:
-✅ High availability (servers in different zones)
-✅ Disaster recovery (backup in different region)
-✅ Lower latency (pick region near users)
-```
+**Everyday uses:** user-uploaded files, static frontend hosting (a React build, usually paired with CloudFront), backups/exports, and presigned URLs (a signed link that lets the browser upload directly to S3, skipping your app server). Not for querying data (that's RDS) or fast key lookups (that's a cache).
+
+**Storage classes** trade cost for access speed: Standard (frequent access, ~$0.023/GB/mo), Infrequent Access (~$0.0125/GB/mo), Glacier (archive, slow retrieval, ~$0.004/GB/mo), Deep Archive (cheapest, slowest). **Intelligent-Tiering** moves objects between tiers automatically based on actual access. **Versioning** keeps prior versions of an object so an overwrite/delete can be rolled back (at extra storage cost). A bucket can also serve a **static website** directly — upload the build, enable hosting, make it public, put CloudFront in front.
 
 ---
 
-# PART 2: CORE AWS SERVICES
+## 4. RDS: Who Backs Up Your Database?
 
-## EC2 (Elastic Compute Cloud)
+**Scenario:** running your own PostgreSQL on an EC2 instance means *you* patch it and back it up — and it's easy for a backup cron job to fail silently for weeks without anyone noticing, until the day you actually need it.
 
-```
-EC2 = Virtual machine in cloud
+**RDS (Relational Database Service)** is a managed database (PostgreSQL, MySQL, Oracle, SQL Server): AWS handles automated backups (with point-in-time recovery), patching, and replication. You pick an instance size (`db.t3.micro` up to `db.m5.large`+) and pay for it plus storage (~$0.23/GB/mo) — there's no server to SSH into.
 
-CONCEPT:
-├─ Choose machine type (t3.medium, m5.large)
-├─ Choose OS (Linux, Windows)
-├─ Choose storage (EBS volume)
-├─ Configure networking (VPC, security groups)
-└─ Launch!
+**Multi-AZ** runs a synced standby in a second AZ; if the primary fails, RDS auto-promotes the standby (1–2 minutes, no connection-string change) — this is the availability fix for the same "one AZ can go down" problem from section 1, applied to your database. **Read replicas** are a separate, read-only copy for spreading read load off the primary (and can be promoted manually in a disaster-recovery scenario, but that's secondary).
 
-INSTANCE TYPES:
-t3.micro (free tier):  1 CPU, 1GB RAM     $0/month
-t3.small:              2 CPU, 2GB RAM     $17/month
-t3.medium:             2 CPU, 4GB RAM     $34/month
-m5.large:              2 CPU, 8GB RAM     $96/month
-c5.large (compute):    2 CPU, 4GB RAM     $85/month
-r5.large (memory):     2 CPU, 16GB RAM    $126/month
-
-PRICING MODELS:
-1. On-Demand: Pay per hour (most expensive)
-2. Spot: Bid for unused capacity (70% cheaper, can be terminated)
-3. Reserved: 1-3 year commitment (40% cheaper)
-4. Savings Plan: Flexible commitment (up to 72% off)
-
-STORAGE:
-EBS (Elastic Block Store):
-├─ Persistent block storage
-├─ Survives instance termination
-├─ Like hard drive for EC2
-└─ $0.10/GB/month
-
-Example: Web server on EC2
-Instance: t3.medium ($34)
-Storage: 30GB EBS ($3)
-Data transfer: $0.09/GB
-Total: ~$40-100/month depending on traffic
-
-LAUNCHING:
-1. AWS Console → EC2
-2. Click "Launch Instance"
-3. Choose AMI (Amazon Machine Image)
-4. Choose instance type
-5. Configure storage
-6. Add security group (firewall rules)
-7. Review and launch
-8. SSH into server: ssh -i key.pem ec2-user@ip
-
-SCALING:
-Auto Scaling Group:
-- Monitor CPU usage
-- If > 70%: Launch new instance
-- If < 30%: Terminate instance
-- Automatically scale up/down
-```
+**Setup:** Console → RDS → choose engine → choose size, enable Multi-AZ for production → set credentials (never hardcode them) → confirm backup retention → restrict access via a security group → connect using the endpoint AWS gives you (`pageturner-db.xxxxx.rds.amazonaws.com`).
 
 ---
 
-## S3 (Simple Storage Service)
+## 5. Lambda: Running Code Without a Server Sitting Idle
 
-```
-S3 = Object storage (like Google Drive for data)
+**Scenario:** resizing a book cover into a thumbnail after upload takes a couple seconds, a few hundred times a day. Running a whole EC2 instance just to wait around for that is mostly paying for idle time.
 
-CONCEPT:
-├─ Store files (objects) in buckets
-├─ Global namespace (bucket names unique worldwide)
-├─ Highly available (99.99%)
-├─ Highly durable (99.999999999%)
-└─ Pay per GB stored + requests
+**Lambda** runs a function only when triggered, billed per execution time, with no server for you to manage at all. Triggers: an S3 event (upload), an API Gateway request, a scheduled CloudWatch event, a DynamoDB stream, or a direct invocation.
 
-USE CASES:
-- Store images, documents, videos
-- Backup data
-- Website hosting (static)
-- Data archival
-- Machine learning datasets
-
-PRICING:
-Storage: $0.023/GB/month (first 50TB)
-Requests: $0.0004 per PUT/COPY/POST/LIST
-Transfer: $0.09/GB out (in is free)
-
-Example: 1TB website + 10M requests/month
-Storage: 1000 GB × $0.023 = $23
-Requests: 10M × $0.0004 = $4
-Transfer: ~$50 (depends on traffic)
-Total: ~$80/month
-
-STORAGE CLASSES:
-Standard: Frequently accessed (default)
-Infrequent Access: < 1x per month ($0.0125/GB)
-Glacier: Archive ($0.004/GB, slow retrieval)
-Deep Archive: Long-term ($0.00099/GB, very slow)
-
-EXAMPLE: Store images
-PUT s3://my-bucket/photo.jpg
-GET s3://my-bucket/photo.jpg
-DELETE s3://my-bucket/photo.jpg
-
-VERSIONING:
-- Keep multiple versions of objects
-- Rollback to previous versions
-- $0.023/GB per version stored
-
-STATIC WEBSITE HOSTING:
-1. Create S3 bucket
-2. Upload HTML/CSS/JS
-3. Enable static website hosting
-4. Set bucket policy to public
-5. CloudFront for CDN
-```
-
----
-
-## RDS (Relational Database Service)
-
-```
-RDS = Managed database (PostgreSQL, MySQL, Oracle, SQL Server)
-
-MANAGED = AWS handles:
-✅ Backups
-✅ Patching
-✅ High availability
-✅ Replication
-❌ You don't manage servers
-
-INSTANCE TYPES:
-db.t3.micro:   1 vCPU, 1GB RAM    $0/month (free tier)
-db.t3.small:   2 vCPU, 2GB RAM    $17/month
-db.m5.large:   2 vCPU, 8GB RAM    $170/month
-
-STORAGE:
-$0.23/GB/month for database size
-
-PRICING: 1GB database, db.t3.micro
-Database: 1GB × $0.23 = $0.23
-Instance: Free tier
-Backups: 30 days = Free
-Total: Free tier!
-
-MULTI-AZ (High Availability):
-└─ Primary in us-east-1a
-└─ Standby in us-east-1b (automatic failover)
-└─ Additional cost: +50% (double instance)
-└─ No downtime if primary fails
-
-READ REPLICAS:
-├─ Create read-only copy
-├─ Different AZ or region
-├─ Used for read scaling
-├─ Can promote to primary (for disaster recovery)
-└─ Pay for replica instance + storage
-
-AUTOMATED BACKUPS:
-├─ Daily snapshots (30-day retention)
-├─ Transaction logs (point-in-time recovery)
-└─ Stored in S3 (no additional cost within retention)
-
-SETUP:
-1. AWS Console → RDS
-2. Create database instance
-3. Choose engine (PostgreSQL, MySQL)
-4. Choose instance type (db.t3.micro)
-5. Set master username & password
-6. Enable backups (automatic)
-7. Configure security group
-8. Get endpoint: mydb.xxx.rds.amazonaws.com
-9. Connect: psql -h mydb.xxx.rds.amazonaws.com -U admin
-```
-
----
-
-## Lambda (Serverless Computing)
-
-```
-Lambda = Run code without managing servers
-
-CONCEPT:
-├─ Upload code (function)
-├─ Set memory (128MB - 10GB)
-├─ AWS runs function when triggered
-├─ Pay per 100ms of execution
-└─ Auto-scales (no servers to manage)
-
-PRICING:
-1M invocations: Free
-1M-6B invocations: $0.20 per million
-Memory: $0.0000166667 per GB-second
-
-Example: 1M requests/day, 2 second execution, 512MB
-Compute: 1M/day × 30 = 30M/month × $0.20/M = $6
-Duration: 30M × 2s × 512MB/1024 = 30M GB-seconds × $0.0000166667 = $0.50
-Total: ~$6.50/month
-
-TRIGGERS:
-- API Gateway (HTTP request)
-- S3 event (file upload)
-- DynamoDB stream (database change)
-- SNS (notification)
-- CloudWatch (scheduled)
-- Direct invocation
-
-EXAMPLE: Resize images on S3 upload
-1. Image uploaded to S3
-2. S3 triggers Lambda function
-3. Lambda:
-   - Download image from S3
-   - Resize using PIL
-   - Upload thumbnail to S3
-4. Returns immediately
-
-ADVANTAGES:
-✅ No server management
-✅ Auto-scales
-✅ Pay per execution
-✅ Easy to deploy
-❌ Cold start (first invocation slow)
-❌ Max 15 minute execution
-❌ Limited to 10GB memory
-
-EXAMPLE CODE (Python):
+```python
 def lambda_handler(event, context):
-    # event = input (API request, S3 event, etc.)
-    # context = metadata about invocation
-    
     name = event.get('name', 'World')
-    message = f"Hello, {name}!"
-    
-    return {
-        'statusCode': 200,
-        'body': message
-    }
+    return {'statusCode': 200, 'body': f"Hello, {name}!"}
+```
 
-DEPLOYMENT:
-1. Zip function + dependencies
-2. Upload to Lambda
-3. Set handler (lambda_function.lambda_handler)
-4. Set memory, timeout, environment variables
-5. Attach execution role (IAM)
-6. Done! (scales automatically)
+**Trade-offs:** no servers to patch, auto-scales, pay-per-use — versus a **cold start** (first call after idle is slower while AWS spins up an environment), a 15-minute max runtime, and up to 10GB memory. Fine for the thumbnail job; wrong for PageTurner's main always-on app.
+
+**Deploying:** zip the code + dependencies → upload → set the handler → set memory/timeout → attach an IAM (Identity and Access Management) execution role scoped to only what the function needs (e.g. read/write on one S3 bucket) → done, it scales on its own from there.
+
+---
+
+## 6. VPC: Putting Your Servers and Database Behind a Locked Door
+
+**Scenario:** without deliberately configuring a network, it's easy to end up with a database reachable straight from the public internet, protected by nothing but a password.
+
+**VPC (Virtual Private Cloud)** is a private network you define in AWS — like a building's floor plan: which subnets exist, and which can be reached from outside.
+
+- **Subnets:** a **public subnet** is reachable from the internet, a **private subnet** is not. PageTurner's EC2 servers sit in public; RDS sits in private.
+- **Internet Gateway:** what connects the VPC to the internet at all.
+- **NAT Gateway:** lets private-subnet instances make *outbound* calls (e.g. downloading updates) without being reachable *from* the internet.
+- **Route tables:** rules deciding where a subnet's traffic goes.
+- **Security groups:** a firewall on one specific resource — "allow port 443 from anywhere," "allow port 5432 only from the web servers." A VPC is the network's shape; a security group is the lock on one door within it.
+
+```text
+Internet -> Internet Gateway -> VPC (10.0.0.0/16)
+  Public subnet (10.0.1.0/24):  EC2 web servers, allow 80/443
+  Private subnet (10.0.2.0/24): RDS, allow 5432 only from web servers
 ```
 
 ---
 
-## VPC (Virtual Private Cloud)
+## 7. Load Balancer: Spreading Traffic Across Multiple Servers
 
-```
-VPC = Virtual network for AWS resources
+**Scenario:** Auto Scaling (section 2) can launch several EC2 instances during a spike, but something still has to decide which instance each request goes to, and stop sending traffic to one that's stopped responding.
 
-COMPONENTS:
-1. Subnets: Smaller networks within VPC
-   ├─ Public (accessible from internet)
-   ├─ Private (internal only)
-   └─ Each in different AZ for high availability
+An **ELB (Elastic Load Balancer)** sits in front of your instances and distributes requests, using **health checks** to detect and route around unhealthy ones — this is exactly what makes an instance failure invisible to users (section 10).
 
-2. Internet Gateway: Connection to internet
-   └─ Attached to VPC for public access
+**Types:** **ALB (Application Load Balancer)** — Layer 7 (HTTP-aware, routes by host/path), the normal choice for a web app. **NLB (Network Load Balancer)** — Layer 4, for extreme throughput. Classic Load Balancer is the older, effectively deprecated option.
 
-3. NAT Gateway: Private instances access internet
-   ├─ Sits in public subnet
-   ├─ Private instances route through it
-   └─ $0.045/hour + $0.045/GB
-
-4. Route Tables: Define traffic routing
-   ├─ "Route 0.0.0.0/0 to Internet Gateway"
-   ├─ "Route 10.0.0.0/16 internal"
-   └─ Different for public vs private subnets
-
-5. Security Groups: Firewall rules
-   ├─ Allow SSH (port 22) from 0.0.0.0
-   ├─ Allow HTTP (port 80) from 0.0.0.0
-   ├─ Allow PostgreSQL (port 5432) from 10.0.1.0/24
-   └─ Stateful (return traffic auto-allowed)
-
-TYPICAL ARCHITECTURE:
-Internet
-    ↓
-Internet Gateway
-    ↓
-┌───────────────────────────────┐
-│ VPC (10.0.0.0/16)             │
-│ ┌───────────────────────────┐ │
-│ │ Public Subnet (10.0.1.0/24)│ │
-│ │ EC2 Web Servers           │ │
-│ │ Security Group: Allow 80  │ │
-│ └───────────────────────────┘ │
-│           ↓                    │
-│ ┌───────────────────────────┐ │
-│ │ Private Subnet (10.0.2.0) │ │
-│ │ RDS Database              │ │
-│ │ Security Group: Allow 5432│ │
-│ │ (only from web servers)   │ │
-│ └───────────────────────────┘ │
-└───────────────────────────────┘
-
-SETUP:
-1. Create VPC (10.0.0.0/16)
-2. Create public subnet (10.0.1.0/24)
-3. Create private subnet (10.0.2.0/24)
-4. Attach Internet Gateway
-5. Create route table for public subnet
-6. Route public subnet traffic to IGW
-7. Create security groups (firewalls)
-8. Launch EC2 in public, RDS in private
-```
+**Setup:** create the ALB in your VPC → create a target group and register EC2 instances → add a listener (e.g. port 443 → target group) → attach an SSL/TLS certificate if terminating HTTPS here → traffic is now distributed and health-checked automatically.
 
 ---
 
-## Load Balancer (ELB)
+## 8. CloudFront: Serving Content Fast to Distant Users
 
-```
-ELB = Distribute traffic across servers
+**Scenario:** PageTurner's servers run in `us-east-1`. A user in Singapore requesting a book cover waits for the round trip to Virginia and back — a distance problem no server-side code can fix.
 
-TYPES:
-1. Application Load Balancer (ALB)
-   ├─ Layer 7 (Application layer)
-   ├─ Route by hostname, path, port
-   ├─ Good for web applications
-   └─ $0.0225/hour
+**CloudFront** is AWS's CDN (Content Delivery Network): 200+ edge locations that cache content near the requester, so repeat requests are served locally instead of crossing continents. Point its origin at an S3 bucket (static assets) or a load balancer (dynamic content), set a cache TTL, and it deploys in minutes. Benefits: lower latency, reduced load/bandwidth on your origin, built-in DDoS protection, and SSL/TLS.
 
-2. Network Load Balancer (NLB)
-   ├─ Layer 4 (Transport layer)
-   ├─ Ultra-high performance
-   ├─ Millions of requests/sec
-   └─ $0.006/hour
+---
 
-3. Classic Load Balancer (deprecated)
-   └─ Layer 4/7 (old)
+## 9. Putting It All Together
 
-ARCHITECTURE:
+```text
 Users
-  ↓
-Load Balancer (DNS: myapp.us-east-1.elb.amazonaws.com)
-  ├─ → EC2 Server 1 (10.0.1.10)
-  ├─ → EC2 Server 2 (10.0.1.20)
-  └─ → EC2 Server 3 (10.0.1.30)
-
-FEATURES:
-✅ Health checks (monitor backend)
-✅ Auto-scaling (launch/terminate servers)
-✅ SSL/TLS (HTTPS)
-✅ Sticky sessions (same user → same server)
-✅ Request routing (host-based, path-based)
-
-PRICING (ALB):
-LB hours: $0.0225/hour = $16/month
-LCU (Load Capacity Units):
-  New connections: $0.006 per LCU
-  Active connections: $0.004 per LCU
-  Processed bytes: $0.006 per LCU
-Total: ~$20-50/month depending on traffic
-
-SETUP:
-1. Create ALB in AWS Console
-2. Choose VPC and subnets
-3. Create target group (backend servers)
-4. Register EC2 instances
-5. Add listener (port 80 → target group)
-6. Optional: Add SSL certificate (HTTPS)
-7. Done! Traffic automatically distributed
+  -> CloudFront (caches static assets at the edge)
+  -> Route 53 (DNS: resolves pageturner.com)
+  -> Application Load Balancer (health-checks, distributes traffic)
+  -> EC2 Auto Scaling Group (public subnet, Spring Boot app x N)
+  -> RDS Multi-AZ PostgreSQL (private subnet, primary + standby)
+  -> S3 (uploads, backups, static files)
+  -> CloudWatch (monitors all of the above)
 ```
+
+Route 53 is just AWS's managed DNS — it translates the domain name into the load balancer's address. Every arrow here is one of the sections above; reading it top to bottom is the actual request path.
 
 ---
 
-## CloudFront (CDN)
+## Interview Questions and Answers
 
-```
-CloudFront = AWS Content Delivery Network
+### 1. Design a web application on AWS for ~1M users, 1k requests/sec, high availability.
 
-PRICING:
-Data transfer out: $0.085/GB (US), $0.086 (EU), etc.
-Requests: $0.0075 per 10k requests
-HTTP/2 PUSH: $0.01 per 10k pushes
+**Answer:** Route 53 for DNS, CloudFront for static assets, an ALB across an EC2 Auto Scaling Group (e.g. 10 `t3.large` baseline, scaling with load), RDS Multi-AZ for the database, S3 for files/backups, CloudWatch for monitoring. High availability specifically comes from multi-AZ EC2, Multi-AZ RDS failover, and load-balancer health checks.
 
-SETUP:
-1. Create distribution
-2. Point origin to:
-   - S3 bucket (for static files)
-   - ALB/ELB (for dynamic content)
-   - Custom server
-3. Set cache behaviors (TTL)
-4. Deploy (takes 5-10 minutes)
+### 2. How do you handle failures?
 
-BENEFITS:
-✅ Global edge locations (200+)
-✅ Lower latency (serve from nearby)
-✅ Reduced bandwidth costs
-✅ DDoS protection
-✅ SSL/TLS integration
-```
+**Answer:** EC2 instance dies → load balancer's health check removes it within seconds, Auto Scaling launches a replacement — users see at most one failed request. RDS primary dies → Multi-AZ auto-promotes the standby in 1–2 minutes, no connection-string change needed. Region-wide outage → requires a pre-built second region, cross-region replica, and Route 53 DNS failover; expect a few minutes of downtime even then. CloudWatch alarms (e.g. error rate or latency thresholds) are what actually tell a human something happened.
 
----
+### 3. How do you optimize AWS costs?
 
-# PART 3: COMMON ARCHITECTURES
+**Answer:** Reserved Instances or a Savings Plan for anything running continuously (40–70% off vs On-Demand); Spot Instances for interruption-tolerant batch work (~70% off); S3 Intelligent-Tiering for unpredictable access patterns; Lambda instead of an idle EC2 instance for short, occasional jobs; CloudFront to cut origin bandwidth costs. Each has a trade-off (commitment, interruption risk, cold starts) that has to match the actual workload.
 
-## Web Application Architecture
+### 4. EC2 vs Lambda — when would you use each?
 
-```
-ARCHITECTURE:
+**Answer:** EC2 for a long-running server (the main Spring Boot app) or anything needing more than 15 minutes or full OS control. Lambda for short, event-triggered work (resize an image on upload, a scheduled job, a low-traffic endpoint) where you don't want to manage a server and only pay for actual execution time.
 
-Users
-  ↓
-CloudFront (CDN) → Caches static assets
-  ├─ Images, CSS, JS
-  └─ Served from edge locations
-  ↓
-Route 53 (DNS)
-  ↓
-Application Load Balancer (Auto Scaling)
-  ├─ Health checks every 30 seconds
-  ├─ Launch new EC2 if unhealthy
-  └─ Remove unhealthy instances
-  ↓
-┌──────────────────────────────┐
-│ EC2 Auto Scaling Group       │
-├──────────────────────────────┤
-│ Server 1: Spring Boot app    │ (10.0.1.10)
-│ Server 2: Spring Boot app    │ (10.0.1.20)
-│ Server 3: Spring Boot app    │ (10.0.1.30)
-└──────────────────────────────┘
-  ↓ (in private subnet)
-RDS Multi-AZ (PostgreSQL)
-├─ Primary (10.0.2.10)
-└─ Standby (10.0.2.20)
-  ↓
-S3 (backups, static files)
-  ↓
-CloudWatch (monitoring)
+### 5. What do full-stack developers actually use S3 for?
 
-SCALING:
-CPU 80%+ → Launch new instance
-CPU 30%- → Terminate instance
-Automatic load balancing
+**Answer:** Storing files — user uploads, static frontend hosting, backups/exports, and presigned-URL direct uploads from the browser. Not for querying data (RDS/DynamoDB) or fast key lookups (a cache) — S3 is built for whole files.
 
-AVAILABILITY:
-- Multiple AZs (if one fails, others handle)
-- Multi-AZ RDS (automatic failover)
-- CloudFront caching
-- Auto-scaling (no single point of failure)
-```
+### 6. What's a security group, and how is it different from a VPC?
+
+**Answer:** A VPC is the whole private network's shape (which subnets exist, how they connect). A security group is a firewall on one specific resource, saying exactly what traffic is allowed in/out. VPC is the building's floor plan; a security group is the lock on one door.
+
+### 7. RDS vs DynamoDB — when would you pick each?
+
+**Answer:** RDS (managed relational, Postgres/MySQL) when data has real relationships and you need transactions/joins — the default for most app data. DynamoDB (managed key-value/document) for extremely fast lookups by key at massive scale, no joins needed. Same SQL-vs-NoSQL decision, just AWS's managed versions of each.
 
 ---
 
-# PART 4: INTERVIEW QUESTIONS
+## Revision Checklist
 
-## Question 1: Design a web application on AWS
-
-**Answer:**
-```
-REQUIREMENTS: 1M users, 1k QPS, high availability
-
-ARCHITECTURE:
-
-1. DNS: Route 53 (user traffic)
-2. CDN: CloudFront (static files)
-3. LB: Application Load Balancer (distribute traffic)
-4. Compute: EC2 Auto Scaling Group (scale based on CPU)
-5. Database: RDS Multi-AZ (high availability)
-6. Storage: S3 (backups, static files)
-7. Monitoring: CloudWatch (metrics & alarms)
-
-COMPONENTS DETAIL:
-
-EC2 Instances:
-- Spring Boot application
-- 1k QPS / 100 QPS per instance = 10 instances
-- t3.large (2 vCPU, 8GB RAM)
-- Auto scaling: Scale between 10-50 instances
-- Cost: 10 × $0.104/hour × 730 hours = $760/month
-
-RDS Database:
-- PostgreSQL
-- Multi-AZ (primary + standby)
-- db.m5.large (2 vCPU, 8GB RAM)
-- 1TB storage
-- Automated backups (30 days)
-- Cost: $0.25/hour × 730 + $230/month = $413/month
-
-Load Balancer:
-- Application Load Balancer
-- Health checks every 30 seconds
-- Route to healthy instances
-- Cost: $16 + $0.006 per LCU = ~$30/month
-
-CloudFront:
-- Cache static assets (images, CSS, JS)
-- Global edge locations
-- Cost: $0.085/GB × 10GB = $0.85/month
-
-TOTAL: ~$1200/month
-(But provides 99.99% availability, auto-scaling, disaster recovery)
-```
-
----
-
-## Question 2: How do you handle failures?
-
-**Answer:**
-```
-FAILURE SCENARIOS:
-
-1. EC2 Instance fails:
-   ✅ Load Balancer detects (health check fails)
-   ✅ Removes from pool immediately
-   ✅ Auto-scaling launches replacement
-   ✅ Users don't notice (others handle traffic)
-
-2. Database primary fails:
-   ✅ RDS Multi-AZ automatic failover
-   ✅ Standby becomes primary (within 1-2 minutes)
-   ✅ Connection strings auto-updated
-   ✅ Application reconnects transparently
-
-3. Region-wide outage:
-   ✅ Have infrastructure in backup region
-   ✅ Route 53 failover (DNS points to backup region)
-   ✅ RDS cross-region read replica
-   ✅ Promote to primary if needed
-   ✅ Downtime: Few minutes for DNS propagation
-
-MONITORING & ALERTING:
-- CloudWatch monitors CPU, memory, requests
-- Alert if error rate > 0.1%
-- Alert if latency > 500ms
-- Automatic rollback on bad deployment
-```
-
----
-
-## Question 3: Cost optimization
-
-**Answer:**
-```
-1. Use Reserved Instances
-   - 1 year: 40% savings
-   - 3 year: 60% savings
-   vs On-Demand
-
-2. Use Spot Instances for flexible workloads
-   - Batch processing
-   - Development/testing
-   - 70% cheaper
-   - Risk: Can be terminated anytime
-
-3. RDS Savings Plan
-   - Commit to usage level
-   - 40% cheaper than on-demand
-
-4. S3 Intelligent Tiering
-   - Auto-move between access tiers
-   - 30% savings vs Standard
-
-5. Use Lambda for occasional workloads
-   - No cost when not in use
-   - Better than EC2 for spiky traffic
-
-6. CloudFront reduces bandwidth costs
-   - Serve from edge
-   - Reduce data transfer
-
-SAVINGS: 50-70% with reserved instances + optimization
-```
-
----
-
-## Question 4: EC2 vs Lambda — when would you use each, as a full-stack developer?
-
-**Answer:**
-```
-EC2 (a virtual machine you manage):
-- Use for: a long-running server (your Spring Boot app, a Node API that
-  must stay warm), anything needing more than ~15 minutes to run,
-  or full control over the OS/runtime
-- You manage: scaling, patching, uptime (or let Auto Scaling handle it)
-
-Lambda (serverless function):
-- Use for: short-lived, event-triggered work — resize an image on S3 upload,
-  a scheduled cleanup job, a lightweight API endpoint with spiky/low traffic
-- You DON'T manage servers at all; pay only for actual execution time
-- Trade-off: "cold starts" (first call after idle is slower), 15-minute max runtime
-
-RULE OF THUMB: if it's your main always-on application, EC2 (or a container
-platform). If it's a small, occasional, event-driven task, Lambda.
-```
-
----
-
-## Question 5: What do full-stack developers actually use S3 for day to day?
-
-**Answer:**
-```
-S3 is object storage — not a database, a place to store FILES:
-- User-uploaded content (profile photos, PDFs, videos)
-- Static frontend hosting (a React build's HTML/CSS/JS, often paired with CloudFront)
-- Backups and exported reports/CSVs
-- As the target of a presigned-URL direct upload from the browser (so large
-  files never pass through your own application server — see the file upload
-  system design in the SystemDesign folder for the full pattern)
-
-It's NOT for: data you need to query (that's RDS/DynamoDB) or fast key lookups
-(that's a cache like Redis) — S3 is built for storing and retrieving whole files.
-```
-
----
-
-## Question 6: What's a security group, and how is it different from a VPC?
-
-**Answer:**
-```
-VPC = the whole private network you carve out in AWS (like designing an office
-building's floor plan — which rooms/subnets exist, how they connect).
-
-Security Group = a firewall attached to a specific resource (an EC2 instance,
-an RDS database) that says exactly which traffic is allowed in and out
-- Example: "allow port 443 from anywhere, allow port 5432 only from the app
-  server's security group, block everything else"
-
-ONE LINE: VPC is the network's shape; a security group is the lock on one
-specific door within it.
-```
-
----
-
-## Question 7: RDS vs DynamoDB — when would you pick each?
-
-**Answer:**
-```
-RDS (managed relational database — Postgres/MySQL):
-- Use when: your data has real relationships (users, orders, payments) and
-  you need transactions/joins — this is the default choice for most app data
-
-DynamoDB (managed key-value/document store):
-- Use when: you need extremely fast, simple lookups by a known key at massive
-  scale (a session store, a shopping cart, a leaderboard) and don't need joins
-
-This is the same SQL-vs-NoSQL decision covered in depth in the
-Backend/Database folder — RDS and DynamoDB are just AWS's managed versions
-of "relational" and "key-value/document," respectively.
-```
-
----
-
-# SUMMARY: AWS Mastery
-
-✅ **Core Services:**
-- [ ] Understand EC2
-- [ ] Understand S3
-- [ ] Understand RDS
-- [ ] Understand Lambda
-- [ ] Understand VPC
-- [ ] Understand Load Balancer
-
-✅ **Architecture:**
-- [ ] Can design web app
-- [ ] Can handle failures
-- [ ] Can optimize costs
-- [ ] Can ensure high availability
-
-✅ **Interview Skills:**
-- [ ] Can discuss trade-offs
-- [ ] Can estimate costs
-- [ ] Can design for scale
-- [ ] Can handle disasters
-
----
-
-**Master AWS—it's 30-40% of backend interviews! 🚀**
+- [ ] Explain why a single server/AZ/region is a risk, and what Regions and AZs are for.
+- [ ] Explain EC2 instance types, the four pricing models, and what EBS and Auto Scaling each solve.
+- [ ] Explain why S3 exists instead of storing files on EC2 disk, plus storage classes and versioning.
+- [ ] Explain what "managed" means in RDS, and the difference between Multi-AZ and a read replica.
+- [ ] Explain when Lambda is the right choice over EC2, and its real limitations.
+- [ ] Draw a VPC with public/private subnets and explain VPC vs security group.
+- [ ] Explain what a load balancer's health check does and how ALB differs from NLB.
+- [ ] Explain what CloudFront caches and why it helps distant users.
+- [ ] Draw the full architecture (section 9) from memory and narrate one request through it.
+- [ ] Answer all 7 interview questions without looking at the notes.

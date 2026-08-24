@@ -1,36 +1,51 @@
-# Docker — Full Notes (with Spring Boot + React Twitter Clone example)
+# Docker Fundamentals (Beginner-Friendly)
 
-## 1. What is Docker & why we need it
+This file follows the same approach as [Spring Boot Fundamentals](../Backend/Springboot/01-Spring-Boot-Fundamentals.md): every term is introduced by first showing the concrete problem it solves, then given a name. Read it top to bottom — later sections build on earlier ones.
 
-**Definition:** Docker is a platform to build, ship, and run applications inside **containers** — lightweight, isolated units that bundle an app with everything it needs (code, runtime, libraries, system tools, config).
-
-**Why we need it:**
-- **"Works on my machine" problem** — container has the exact same environment everywhere (dev, QA, prod).
-- **Lightweight vs VMs** — containers share the host OS kernel, so they start in seconds and use far less RAM/disk than a VM.
-- **Isolation** — each service (DB, backend, frontend) runs independently; no dependency conflicts.
-- **Portability** — build once, run on any machine with Docker installed (Linux, Mac, Windows, cloud).
-- **Microservices-friendly** — each service = one container, easy to scale/replace individually.
-- **CI/CD friendly** — same image tested in pipeline is the image deployed to prod.
+The running example throughout is a Twitter-clone project: a Spring Boot backend, a React frontend, and a Postgres database — three real services that need to run together.
 
 ---
 
-## 2. Core Concepts
+## 1. The Problem: "It Works on My Machine"
 
-| Term | Definition | Why it matters |
-|---|---|---|
-| **Image** | Read-only template/blueprint (app + dependencies + OS libs), built from a `Dockerfile`. | You *ship* images, not containers. |
-| **Container** | A running instance of an image. | This is what actually executes your app. |
-| **Dockerfile** | Text file with instructions to build an image. | Defines how the image is built, layer by layer. |
-| **Registry** | Storage for images (Docker Hub, AWS ECR, GitHub Container Registry, private registry). | Lets teams share/pull built images instead of rebuilding. |
-| **Volume** | Persistent storage outside the container's writable layer. | Container data is deleted when container is removed — volumes survive that. |
-| **Network** | Virtual network Docker creates so containers can talk to each other by name. | Backend can reach DB via hostname like `db` instead of IP. |
-| **Docker Compose** | Tool + YAML file to define & run multi-container apps (`docker-compose.yml`). | Instead of running 5 `docker run` commands, one `docker compose up` starts everything. |
-| **.dockerignore** | List of files/folders excluded from build context. | Keeps images small, avoids leaking `.env`/`node_modules`/`.git`. |
-| **Multi-stage build** | Dockerfile with multiple `FROM` stages — build in one stage, copy only the output to a lean final stage. | Drastically reduces final image size (esp. important for Java/React). |
+You build the Twitter-clone backend on your laptop — Java 21, a local Postgres, database credentials hardcoded in `application.properties`. It runs fine. Your teammate pulls the repo: different Java version, no local Postgres, wrong credentials. It breaks for them. You fix that, then deploy to a server with yet another Java version and different OS libraries — it breaks again, for a third set of reasons.
 
----
+**This is exactly what Docker answers.** Docker packages an app together with everything it needs to run — code, runtime, libraries, OS-level tools — into one unit called a **container**. A container behaves the same way on every machine, because it carries its own environment instead of depending on whatever happens to already be installed.
 
-## 3. Basic Docker Commands (cheat sheet)
+Why this matters beyond just "it runs the same everywhere":
+
+- **Lightweight vs. a Virtual Machine (VM):** a VM boots its own full guest OS, so it's slow to start and heavy on RAM/disk. Containers share the host machine's OS kernel and only package what actually differs, so they start in about a second and use far less RAM/disk.
+- **Isolation:** each service (database, backend, frontend) runs in its own container, so one service's dependency version can never clash with another's.
+- **Portability:** build the image once, run it on any machine with Docker — Linux, Mac, Windows, or a cloud server.
+- **Microservices-friendly:** one service = one container, so any single service can be scaled, replaced, or redeployed on its own.
+- **CI/CD-friendly:** the exact image tested in the pipeline is the same image deployed to production — nothing gets rebuilt slightly differently in between.
+
+## 2. Image, Container, and Dockerfile
+
+To turn "the backend plus everything it needs" into something runnable, you write a **Dockerfile** — a plain text file listing the steps to assemble the environment:
+
+```dockerfile
+FROM eclipse-temurin:21-jdk
+WORKDIR /app
+COPY . .
+RUN mvn clean package -DskipTests
+ENTRYPOINT ["java", "-jar", "target/twitter-backend.jar"]
+```
+
+Running `docker build -t twitter-backend:1.0 .` follows those steps and produces an **image** — a read-only, packaged blueprint. Nothing is running yet. Running `docker run twitter-backend:1.0` actually starts a live process from that image — a **container**. The same image can be started as many independent containers as you like, the way a class can be used to create many objects — this is the difference to reach for when asked "what's the difference between an image and a container."
+
+This particular Dockerfile works, but it has a real problem covered in section 4: the resulting image is much bigger than it needs to be.
+
+One more small but important file: `docker build` sends your *entire* project folder to the build process, in case a `COPY` needs any of it. A `.dockerignore` file (same idea as `.gitignore`) excludes what shouldn't be sent — build output, `.git/`, IDE folders, and especially anything like a `.env` file with real secrets, which would otherwise get baked straight into the image:
+
+```
+target/
+.git/
+.idea/
+*.log
+```
+
+## 3. Basic Docker Commands
 
 ```bash
 # Images
@@ -39,7 +54,7 @@ docker images                        # list local images
 docker rmi myapp:1.0                 # remove image
 
 # Containers
-docker run -d -p 8080:8080 --name myapp myapp:1.0   # run detached, map port
+docker run -d -p 8080:8080 --name myapp myapp:1.0   # run detached, map host port -> container port
 docker ps                            # list running containers
 docker ps -a                         # list all (incl. stopped)
 docker logs -f myapp                 # follow logs
@@ -56,11 +71,10 @@ docker compose logs -f backend       # logs for one service
 docker compose build --no-cache      # force rebuild
 ```
 
----
+## 4. The Twitter Clone: Backend and Frontend Dockerfiles
 
-## 4. Example Project: Twitter Clone (2 separate repos)
+The backend and frontend live in **separate repos** — normal on a real team:
 
-Structure:
 ```
 twitter-clone-backend/     (Spring Boot, Java)
   ├── src/...
@@ -78,20 +92,15 @@ twitter-clone-frontend/    (React)
 twitter-clone-infra/       (optional 3rd repo, just orchestration)
   └── docker-compose.yml
 ```
-Since the two apps live in **separate repos**, `docker-compose.yml` will reference them either by **pre-built image names** (pulled from a registry) or by **relative build context path** if repos are checked out side-by-side. Both patterns shown below.
 
----
-
-### 4.1 Backend — Spring Boot (`twitter-clone-backend/Dockerfile`)
-
-Multi-stage build: Stage 1 compiles with Maven, Stage 2 runs on a slim JRE — final image doesn't contain Maven or source code.
+**Backend.** The naive Dockerfile from section 2 ships the *entire* JDK, Maven, and the source tree inside the final image — none of which the app needs to actually run, just to build. That means a heavier image, slower pushes/pulls, and more installed software than necessary. The fix is a **multi-stage build**: compile in one stage, then copy only the finished jar into a lean final stage.
 
 ```dockerfile
 # ---- Stage 1: Build ----
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
 COPY pom.xml .
-RUN mvn dependency:go-offline -B        # cache deps as separate layer
+RUN mvn dependency:go-offline -B        # cache deps as their own layer
 COPY src ./src
 RUN mvn clean package -DskipTests -B
 
@@ -103,36 +112,25 @@ EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 
-`.dockerignore` (backend):
-```
-target/
-.git/
-.idea/
-*.log
-```
+`pom.xml` is copied and dependencies downloaded *before* `src/` is copied in, on purpose: Docker caches each step as a layer, and reuses the cache if nothing that step depends on has changed. Since code changes far more often than the dependency list, this ordering avoids re-downloading every dependency on every single code change.
 
-Build & run standalone:
+Run it with configuration passed in, not hardcoded:
+
 ```bash
-cd twitter-clone-backend
-docker build -t twitter-backend:1.0 .
 docker run -d -p 8080:8080 \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/twitterdb \
   -e SPRING_DATASOURCE_USERNAME=twitter \
   -e SPRING_DATASOURCE_PASSWORD=secret \
   --name backend twitter-backend:1.0
 ```
-In `application.properties`, read env vars so config isn't hardcoded:
+
 ```properties
 spring.datasource.url=${SPRING_DATASOURCE_URL}
 spring.datasource.username=${SPRING_DATASOURCE_USERNAME}
 spring.datasource.password=${SPRING_DATASOURCE_PASSWORD}
 ```
 
----
-
-### 4.2 Frontend — React (`twitter-clone-frontend/Dockerfile`)
-
-Multi-stage: Stage 1 builds static assets with Node, Stage 2 serves them with Nginx (production-grade, no Node runtime shipped).
+**Frontend.** Same "don't ship the build tools" problem: once `npm run build` produces static files, the browser doesn't need Node.js at all. So stage 1 builds with Node, stage 2 serves with Nginx (a lightweight production web server):
 
 ```dockerfile
 # ---- Stage 1: Build ----
@@ -151,7 +149,8 @@ EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 ```
 
-`nginx.conf` — needed so React Router refreshes don't 404, and to proxy `/api` to backend without CORS headaches:
+Two things still break without `nginx.conf`: refreshing the browser on a client-side route like `/profile` hits Nginx looking for a real file called `profile` (404), and calling the backend directly from the browser at a different origin runs into CORS (Cross-Origin Resource Sharing) restrictions. This config fixes both:
+
 ```nginx
 server {
     listen 80;
@@ -168,29 +167,17 @@ server {
 }
 ```
 
-`.dockerignore` (frontend):
-```
-node_modules/
-build/
-.git/
-.env
-```
+`try_files` falls back to `index.html` so `react-router` can take over and render the right route. Routing `/api/` through Nginx means the browser only ever talks to one origin; Nginx forwards to the backend server-to-server, where CORS doesn't apply.
 
-Build & run standalone:
-```bash
-cd twitter-clone-frontend
-docker build -t twitter-frontend:1.0 .
-docker run -d -p 3000:80 --name frontend twitter-frontend:1.0
-```
+## 5. Networks, Volumes, and Docker Compose
 
----
+Run the backend and frontend as separate containers and the `/api/` proxy fails, because `http://backend:8080` doesn't resolve to anything by default — and it's *not* `localhost` either. **Each container has its own isolated network namespace**, so `localhost` inside a container means that container itself, not the host or any other container.
 
-### 4.3 Wiring both repos + DB with Docker Compose
+A **Docker network** fixes this: a virtual network Docker creates, where containers can reach each other by name through Docker's own internal DNS. This is also why the backend connects to the database at `jdbc:postgresql://db:5432/...` — `db` is just the database container's name on the same network, not a real internet hostname.
 
-**Option A — repos checked out as siblings**, compose file lives in a 3rd orchestration repo or one of the two, referencing relative paths:
+Wiring a network, plus the database, backend, and frontend containers, by hand every time is tedious. **Docker Compose** describes all of it once in one YAML file, and brings the whole stack up or down with a single command:
 
 ```yaml
-# docker-compose.yml
 version: "3.9"
 
 services:
@@ -229,7 +216,12 @@ volumes:
   db-data:
 ```
 
-**Option B — CI already pushed images to a registry**, compose just pulls them (typical when repos truly stay independent and each has its own pipeline):
+Compose puts every service on one shared network automatically and names each container after its service key — that's why `backend` and `db` just work as hostnames.
+
+The `db-data` volume solves a separate problem: a container's writable filesystem is deleted the moment the container is removed, so without a **volume** — storage Docker keeps outside any one container's lifecycle — every user in the database would vanish on `docker compose down`.
+
+If repos are truly independent, each with its own CI/CD pipeline, Compose can skip building from source entirely and just pull already-built images from a **registry** (Docker Hub, AWS ECR, GitHub Container Registry, or a private one):
+
 ```yaml
 services:
   backend:
@@ -240,15 +232,15 @@ services:
     ...
 ```
 
-Run everything:
 ```bash
 docker compose up -d --build
 docker compose ps
 docker compose logs -f backend
-docker compose down          # stop everything (add -v to also wipe db volume)
+docker compose down          # stop everything (add -v to also wipe the db volume)
 ```
 
-Why `depends_on` isn't enough for DB readiness: Postgres container is "running" before it's actually accepting connections. For real projects add a healthcheck:
+One more gotcha: `depends_on: [db]` only waits for the `db` *container* to start, not for Postgres inside it to actually be ready to accept connections — so the backend can still fail on a fresh `up`. A healthcheck closes that gap:
+
 ```yaml
   db:
     ...
@@ -262,39 +254,54 @@ Why `depends_on` isn't enough for DB readiness: Postgres container is "running" 
         condition: service_healthy
 ```
 
----
-
-## 5. Key things to remember when repos are separate
+## 6. Key Things to Remember When Repos Are Separate
 
 - Each repo owns its **own Dockerfile and `.dockerignore`** — build context should never leak into the other app.
-- The **compose/orchestration file is the only place** that needs to know about both repos — keep it in whichever repo makes sense for your team (often a 3rd infra repo, or a `deploy/` folder in one repo).
-- Containers talk to each other using **service names as hostnames** (`backend`, `db`) — never `localhost` between containers, since each container has its own network namespace.
-- In CI/CD, each repo typically builds + pushes its **own image** to a registry on merge; the compose/K8s manifest just references image tags — this keeps the repos truly decoupled.
+- The **compose/orchestration file is the only place** that needs to know about both repos — keep it in whichever repo makes sense for the team (often a 3rd infra repo, or a `deploy/` folder in one repo).
+- Containers talk to each other using **service names as hostnames** (`backend`, `db`) — never `localhost` between containers.
+- In CI/CD, each repo typically builds and pushes its **own image** to a registry on merge; the compose/K8s manifest just references image tags — keeping the repos decoupled.
 
----
+**Summary:** Docker packages each service (Postgres, the Spring Boot backend, the React+Nginx frontend) into isolated, reproducible containers; multi-stage Dockerfiles keep images small; Docker Compose ties the independently-built repos together over a shared network for local dev; volumes keep the database's data alive across restarts; and CI/CD in each repo pushes standalone images for production.
 
-**Summary:** Docker packages each service (Postgres, Spring Boot backend, React+Nginx frontend) into isolated, reproducible containers; multi-stage Dockerfiles keep images small; Docker Compose ties the independently-built repos together via a shared network for local dev, while CI/CD in each repo pushes standalone images for production.
+## Interview Questions and Answers
 
----
+### 1. What's the actual difference between an image and a container?
 
-## 6. Basic Interview Questions (what a full-stack dev should be able to answer)
+**Answer:** An image is the read-only blueprint, built once from a Dockerfile. A container is a running instance of that image. The same image can be started as many separate, independent containers at once — it's the difference between a class and an object.
 
-### Q1: What's the actual difference between an image and a container?
+### 2. Why use a multi-stage Dockerfile instead of one stage?
 
-**Answer:** An image is the read-only blueprint (built once from a Dockerfile); a container is a running instance of that image. The same image can be started as many separate, independent containers at once — it's the difference between a class and an object.
+**Answer:** Build tools (Maven, npm) and source code are only needed to *produce* the final artifact (a jar, a bundled JS app) — they don't need to ship in the image that runs in production. A multi-stage build compiles in one stage and copies only the finished output into a lean final stage, which is why the Twitter-clone backend image ends up as just a JRE + a jar, not a full Maven+JDK toolchain.
 
-### Q2: Why use a multi-stage Dockerfile instead of one stage?
-
-**Answer:** The build tools (Maven, npm) and source code are only needed to *produce* the final artifact (a JAR, a bundled JS app) — they don't need to ship in the image that actually runs in production. A multi-stage build compiles in one stage and copies only the finished output into a lean final stage, which is why the Twitter-clone backend image above ends up as just a JRE + a JAR, not a full Maven+JDK toolchain.
-
-### Q3: What does Docker Compose actually solve that plain `docker run` doesn't?
+### 3. What does Docker Compose actually solve that plain `docker run` doesn't?
 
 **Answer:** A real app is usually several containers (a database, a backend, a frontend) that need to start together, share a network, and know about each other by name. Compose defines all of that once in a YAML file instead of a long sequence of manually-run `docker run` commands with matching network/port flags typed out by hand every time.
 
-### Q4: Why can't two containers reach each other using `localhost`?
+### 4. Why can't two containers reach each other using `localhost`?
 
 **Answer:** Each container has its own isolated network namespace, so `localhost` inside a container refers only to that container itself, not the host machine or any other container. Containers on the same Docker network reach each other by service/container **name** instead (e.g., a backend connecting to `jdbc:postgresql://db:5432/...`, where `db` is the database service's name in `docker-compose.yml`).
 
-### Q5: What's a Docker volume for, and why does removing a container lose data without one?
+### 5. What's a Docker volume for, and why does removing a container lose data without one?
 
-**Answer:** A container's own writable layer is deleted the moment the container is removed, so anything written there (like a database's data files) vanishes with it. A volume is storage that lives outside that writable layer, on the host, so the data survives even after the container that used it is stopped or removed — exactly why the Postgres service above mounts `db-data:/var/lib/postgresql/data`.
+**Answer:** A container's own writable layer is deleted the moment the container is removed, so anything written there (like a database's data files) vanishes with it. A volume is storage that lives outside that writable layer, so the data survives even after the container that used it is stopped or removed — exactly why the Postgres service mounts `db-data:/var/lib/postgresql/data`.
+
+### 6. Why isn't `depends_on` alone enough to guarantee the database is ready?
+
+**Answer:** It only waits for the dependency's container to start, not for the software inside it to finish its own startup and become ready to accept connections. A healthcheck (like `pg_isready`) combined with `condition: service_healthy` makes a dependent service wait for genuine readiness instead.
+
+### 7. Why does the frontend proxy `/api/` through Nginx instead of the browser calling the backend directly?
+
+**Answer:** Calling a different origin directly from the browser hits CORS restrictions. Routing `/api/` through Nginx means the browser only talks to one origin; Nginx forwards the request to the backend server-to-server, where CORS doesn't apply.
+
+## Revision Checklist
+
+- [ ] Explain, using the three-Java-versions scenario, why "it works on my machine" is really several environment assumptions, not one problem.
+- [ ] Explain image vs. container using the class/object analogy, and where a Dockerfile fits.
+- [ ] Explain what `.dockerignore` protects against.
+- [ ] Explain why the naive single-stage backend Dockerfile is wasteful, and how multi-stage fixes it.
+- [ ] Explain why `pom.xml` is copied before `src/` (layer caching).
+- [ ] Explain what the frontend's `nginx.conf` fixes (SPA refresh 404s, and CORS via the `/api/` proxy).
+- [ ] Explain why two containers can't reach each other over `localhost`, and what a Docker network / Compose service name does instead.
+- [ ] Write a `docker-compose.yml` for a database, backend, and frontend, including a volume.
+- [ ] Explain why `depends_on` alone doesn't guarantee readiness, and what a healthcheck adds.
+- [ ] State the four rules for working across separate repos (own Dockerfile/.dockerignore, shared orchestration file, service names not `localhost`, per-repo image push in CI/CD).
